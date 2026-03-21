@@ -3,7 +3,12 @@ lxml_html_clean == 0.1.1
 feedparser == 6.0.11
  requests == 2.32.4
  pandas == 2.3.1
-pycryptodome
+ numpy == 2.3.0
+pycryptodome == 3.17.0
 tqdm
-html5lib
+html5lib == 1.1
 yfinance
+scipy == 1.15.2
+finnhub-python == 2.4.27
+jinja2
+openpyxl

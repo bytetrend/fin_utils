@@ -26,7 +26,8 @@ def extract_volatility_data(ticker):
         
         # Get stock info
         info = stock.info
-        
+        if len(info) <= 1:
+            raise ValueError(f"No data found for ticker {ticker}")
         # Map our target attributes to yfinance keys
         result = {
             'Ticker': ticker,
@@ -42,22 +43,14 @@ def extract_volatility_data(ticker):
     except Exception as e:
         print(f"Error processing {ticker}: {str(e)}")
         # Return a row with None values if there's an error
-        result = {
-            'Ticker': ticker,
-            'Beta (5Y Monthly)': None,
-            '52 Week Change': None,
-            'Avg Vol (3 month)': None,
-            'Avg Vol (10 day)': None,
-            'Shares Outstanding': None
-        }
-        return result
+        raise e
 
 def main():
     """Main function to process all tickers and create the volatility CSV."""
     
     # File paths
-    symbols_file = f'{OUTPUT_DIR}/symbols_list/stocks_symbols.txt'
-    output_file = f'{OUTPUT_DIR}/symbol_info/stocks_ticker_volatility.csv'
+    symbols_file = f'{OUTPUT_DIR}/symbols/stocks_symbols.txt'
+    output_file = f'{OUTPUT_DIR}/symbols/stocks_ticker_volatility.csv'
     
     # Read stock symbols
     print("Reading stock symbols...")
@@ -80,7 +73,7 @@ def main():
             volatility_data.append(data)
             
             # Add a small delay to avoid overwhelming the API
-            time.sleep(0.1)
+            time.sleep(5)
             
         except Exception as e:
             print(f"Failed to process {ticker}: {str(e)}")
@@ -116,7 +109,9 @@ def main():
         print(f"Successfully processed {len(volatility_data)} tickers")
         
         if failed_tickers:
-            print(f"Failed to process {len(failed_tickers)} tickers: {failed_tickers[:10]}{'...' if len(failed_tickers) > 10 else ''}")
+            print(f"Failed to process {len(failed_tickers)} tickers")
+            with open(os.path.join(OUTPUT_DIR,'failed_tickets.txt'), 'w') as f:
+                f.write('\n'.join(failed_tickers))
         
         # Display first few rows
         print("\nFirst 5 rows of the data:")
