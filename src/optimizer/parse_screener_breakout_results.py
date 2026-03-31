@@ -135,7 +135,7 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 3:
-        print("Usage: python ats_price_breakout_interval_selector_qwen_coder_next.py <input_file.csv> <output_file.csv>")
+        print("Usage: python parse_screener_breakout_results.py <input_file.csv> <output_file.csv>")
         sys.exit(1)
 
     input_file = sys.argv[1]
