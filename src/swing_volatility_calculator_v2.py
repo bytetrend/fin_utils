@@ -313,9 +313,22 @@ def main():
 
     # --- Step 2: Export main CSV report ---
     df_results = pd.DataFrame(results)
+    # Sort by reversal ratio descending (most reversals first)
+    df_sorted = df_results.sort_values(by="Reversal Ratio (%)", ascending=False)
+    # Example hybrid score: weight reversal ratio most heavily
+    df_sorted['ReversalScore'] = (
+            0.6 * df["Reversal Ratio (%)"] +
+            0.2 * df["Volatility StdDev (%)"] +
+            0.1 * abs(df["Beta vs SPY (30d)"]) +
+            0.1 * (df["Alpha (annualized)"] < 0).astype(int) * 5
+    )
+
+    # Then sort:
+    df = df_sorted.sort_values("ReversalScore", ascending=False)
+
     if not df_results.empty:
-        csv_path = os.path.join(OUTPUT_DIR, "volatility_beta_report.csv")
-        df_results.to_csv(csv_path, index=False)
+        csv_path = os.path.join(OUTPUT_DIR, "volatility_beta_scored_report.csv")
+        df_sorted.to_csv(csv_path, index=False)
         print(f"\n✅ CSV Report saved: {csv_path}")
 
     # --- Step 3: Build & export heatmap ---
