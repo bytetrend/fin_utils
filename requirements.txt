@@ -12,3 +12,7 @@ scipy == 1.15.2
 finnhub-python == 2.4.27
 jinja2
 openpyxl
+matplotlib
+#firebirdsql == 1.4.5
+#sqlalchemy-firebird == 2.1
+fdb

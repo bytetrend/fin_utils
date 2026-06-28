@@ -1,9 +1,8 @@
 import csv
-from collections import defaultdict
-from datetime import datetime
+from typing import List, Tuple
 
 
-def process_csv(input_file_path):
+def process_csv(input_file_path: str) -> List[Tuple[str, str, int]]:
     """
     Process CSV file and extract the best record per symbol based on highest SignalCount.
 
@@ -31,68 +30,31 @@ def process_csv(input_file_path):
 
                 try:
                     # Extract fields based on column order
-                    symbol, interval, bar_number, bar_date, bar_time, signal_count, computer_datetime = row[:7]
+                    symbol, interval, bar_number, signal_count, computer_datetime = row[:5]
 
                     # Convert SignalCount to integer for comparison
                     signal_count_int = int(signal_count.strip())
 
-                    # Parse dates/times if needed (for tie-breaking when signal counts are equal)
-                    try:
-                        bar_datetime = datetime.strptime(f"{bar_date.strip()} {bar_time.strip()}", "%Y-%m-%d %H:%M:%S")
-                    except ValueError:
-                        # Try other common formats or use placeholder
-                        bar_datetime = datetime.min
-
-                    try:
-                        comp_datetime = datetime.strptime(computer_datetime.strip(), "%Y-%m-%d %H:%M:%S")
-                    except ValueError:
-                        # Try ISO format or other formats
-                        comp_datetime = datetime.min
-
-                    record_key = symbol.strip()
+                    record_key = f"{symbol.strip()}-{interval}"
 
                     if record_key not in best_records:
                         # First record for this symbol
                         best_records[record_key] = (
-                            interval.strip(),
-                            signal_count_int,
-                            computer_datetime.strip(),
-                            bar_datetime,
-                            comp_datetime
+                            symbol.strip(),
+                            int(interval.strip()),
+                            signal_count_int
                         )
                     else:
                         current_best = best_records[record_key]
 
                         # Compare: highest SignalCount wins
-                        if signal_count_int > current_best[1]:
+                        if signal_count_int > current_best[2]:
                             best_records[record_key] = (
-                                interval.strip(),
-                                signal_count_int,
-                                computer_datetime.strip(),
-                                bar_datetime,
-                                comp_datetime
+                                symbol.strip(),
+                                int(interval.strip()),
+                                signal_count_int
                             )
-                        elif signal_count_int == current_best[1]:
-                            # Tie-breaking: use highest BarDate/BarTime or BarNumber
-                            # First compare bar date/time
-                            if bar_datetime > current_best[3]:
-                                best_records[record_key] = (
-                                    interval.strip(),
-                                    signal_count_int,
-                                    computer_datetime.strip(),
-                                    bar_datetime,
-                                    comp_datetime
-                                )
-                            elif bar_datetime == current_best[3]:
-                                # Then compare ComputerDateTime (as per "last printed row" requirement)
-                                if comp_datetime > current_best[4]:
-                                    best_records[record_key] = (
-                                        interval.strip(),
-                                        signal_count_int,
-                                        computer_datetime.strip(),
-                                        bar_datetime,
-                                        comp_datetime
-                                    )
+
                 except ValueError as e:
                     # Skip malformed rows with error logging (optional: add print statement)
                     pass
@@ -105,19 +67,19 @@ def process_csv(input_file_path):
         return []
 
     # Convert to output format
-    result = [(symbol, record[0], record[1], record[2]) for symbol, record in best_records.items()]
+    result = [(record[0], record[1],record[2]) for key, record in best_records.items()]
 
     return result
 
 
-def write_output_file(result_data, output_file_path):
+def write_output_file(result_data: List[Tuple[str, str, int]], output_file_path: str):
     """Write the results to a CSV file with columns: Symbol, Interval, signalcount, computerdatetime"""
     try:
         with open(output_file_path, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
 
             # Write header
-            writer.writerow(['Symbol', 'Interval', 'signalcount', 'computerdatetime'])
+            writer.writerow(['Symbol', 'Interval', 'signalcount'])
 
             # Write data rows
             for row in result_data:
@@ -132,6 +94,16 @@ def write_output_file(result_data, output_file_path):
 
 # Example usage:
 if __name__ == "__main__":
+    """
+    This script process a CSV file output from the MC indicator AtsPriceBreakout_screener.
+    Such script generate a count of entry signals for the strategy AtsPriceBreakout.
+    This script will collect them and pick the one with the largest count per each symbol and interval.
+    The script is loaded in charts with multiple data intervals 10, 20, 30 ticks, etc.
+    For multiple symbols. 
+    Example usage:
+    pass input and output file example:
+    C:/Invest/logs/screener/AtsPriceBrkout.csv C:/Invest/logs/screener/pricebrkout_analysis.csv
+    """
     import sys
 
     if len(sys.argv) < 3:

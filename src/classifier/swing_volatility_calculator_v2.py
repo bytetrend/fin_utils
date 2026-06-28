@@ -7,6 +7,8 @@ Volatility & Beta Analyzer with Daily Volatility Heatmap
 """
 
 import os, time
+from datetime import date
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -317,17 +319,18 @@ def main():
     df_sorted = df_results.sort_values(by="Reversal Ratio (%)", ascending=False)
     # Example hybrid score: weight reversal ratio most heavily
     df_sorted['ReversalScore'] = (
-            0.6 * df["Reversal Ratio (%)"] +
-            0.2 * df["Volatility StdDev (%)"] +
-            0.1 * abs(df["Beta vs SPY (30d)"]) +
-            0.1 * (df["Alpha (annualized)"] < 0).astype(int) * 5
+            0.6 * df_sorted["Reversal Ratio (%)"] +
+            0.2 * df_sorted["Volatility StdDev (%)"] +
+            0.1 * abs(df_sorted["Beta vs SPY (30d)"]) +
+            0.1 * (df_sorted["Alpha (annualized)"] < 0).astype(int) * 5
     )
 
     # Then sort:
     df = df_sorted.sort_values("ReversalScore", ascending=False)
 
+    output_report_file = f'volatility_beta_scored_report{date.today()}.csv'
     if not df_results.empty:
-        csv_path = os.path.join(OUTPUT_DIR, "volatility_beta_scored_report.csv")
+        csv_path = os.path.join(OUTPUT_DIR, output_report_file)
         df_sorted.to_csv(csv_path, index=False)
         print(f"\n✅ CSV Report saved: {csv_path}")
 
@@ -349,7 +352,7 @@ def main():
         import json; json.dump(meta, f, indent=2)
 
     print(f"\n🏁 Done! Output files in `{OUTPUT_DIR}/`:")
-    if os.path.exists(os.path.join(OUTPUT_DIR, "volatility_beta_report.csv")):
+    if os.path.exists(os.path.join(OUTPUT_DIR, output_report_file)):
         print("  • volatility_beta_report.csv")
     if os.path.exists(os.path.join(OUTPUT_DIR, "daily_volatility_heatmap.html")):
         print("  • daily_volatility_heatmap.html (open in browser to view)")

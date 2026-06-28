@@ -15,7 +15,7 @@ def get_ticker_list(sl: Exchanges) -> List[str]:
         method_to_call = getattr(si, sl.method)
         return method_to_call(False)
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"An error occurred calling {sl.method}: {e}")
         traceback.print_exc()
         return None
 
