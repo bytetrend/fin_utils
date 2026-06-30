@@ -106,6 +106,7 @@ if __name__ == "__main__":
                 if not os.path.exists(out_directory):
                     os.makedirs(out_directory)
                 result.to_csv(f"{out_directory}/{mh.method}.csv")
+                print(f"report saved at: {out_directory}/{mh.method}.csv")
 
         else:
             print(f"Failed to get {mh.method} data.")
