@@ -16,3 +16,8 @@ matplotlib
 #firebirdsql == 1.4.5
 #sqlalchemy-firebird == 2.1
 fdb
+openpyxl
+scikit-learn
+snap
+scipy
+optuna
