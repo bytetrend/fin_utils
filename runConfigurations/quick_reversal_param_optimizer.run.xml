@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="swing_volatility_calculator_v2" type="PythonConfigurationType" factoryName="Python" folderName="volatility" nameIsGenerated="true">
+  <configuration default="false" name="quick_reversal_param_optimizer" type="PythonConfigurationType" factoryName="Python" folderName="optimizers">
     <module name="fin_utils" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -8,12 +8,12 @@
       <env name="PYTHONUNBUFFERED" value="1" />
     </envs>
     <option name="SDK_HOME" value="" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/src" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/src/optimizer" />
     <option name="IS_MODULE_SDK" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
-    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/src/classifier/swing_volatility_calculator_v2.py" />
-    <option name="PARAMETERS" value="--file C:\Invest\research\yahoo\symbols\ticker_classification_selected_3m_8_to_300.txt  --min-vol 3000000 --min-price 8 --max-price 300" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/src/optimizer/ats_param_optimizer.py" />
+    <option name="PARAMETERS" value="--output &quot;C:\Invest\logs\merged\AtsPriceQuickReversal-merged.json&quot; &quot;C:\Invest\logs\merged\AtsPriceQuickReversal-merged.csv&quot;" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

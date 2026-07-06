@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="swing_volatility_calculator_current_symbols" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="swing_volatility_calculator_current_symbols" type="PythonConfigurationType" factoryName="Python" folderName="volatility">
     <module name="fin_utils" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
