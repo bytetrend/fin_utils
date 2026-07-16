@@ -7,8 +7,8 @@ Searches all parameters jointly (not just pairs), letting Optuna decide which to
 Uses a chronological train/test split — optimizes only on the training window, then evaluates once on held-out data. Only the test numbers are trustworthy
 Optional --cv-folds to cross-validate the objective within training data
 On your data it correctly caught real overfitting: the long-side filter looked great in training ($11.34/trade) but collapsed to -$2.55/trade out-of-sample — exactly the failure mode this design exists to catch
-Bayesian (Optuna/TPE) threshold optimization for AtsPriceQuickReversal /
-AtsPriceBrkout entry-filter parameters.
+Bayesian (Optuna/TPE) threshold optimization for AtsFastReversal /
+AtsSlowReversal entry-filter parameters.
 
 Why this instead of the grid sweep (ats_param_optimizer.py)?
   - The grid sweep tests parameters one or two at a time. Optuna can search

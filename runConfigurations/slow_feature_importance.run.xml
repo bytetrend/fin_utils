@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="quick_reversal_param_optimizer" type="PythonConfigurationType" factoryName="Python" folderName="optimizers">
+  <configuration default="false" name="slow_feature_importance" type="PythonConfigurationType" factoryName="Python" folderName="optimizers">
     <module name="fin_utils" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -12,8 +12,8 @@
     <option name="IS_MODULE_SDK" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
-    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/src/optimizer/ats_param_optimizer.py" />
-    <option name="PARAMETERS" value="--output &quot;C:\Invest\logs\merged\AtsPriceQuickReversal-merged.json&quot; &quot;C:\Invest\logs\merged\AtsPriceQuickReversal-merged.csv&quot;" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/src/optimizer/ats_feature_importance.py" />
+    <option name="PARAMETERS" value="--output &quot;C:\Invest\logs\merged\AtsSlowReversal_feature_importance_report.json&quot; &quot;C:\Invest\logs\merged\AtsSlowReversal-merged.csv&quot;" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

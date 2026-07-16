@@ -1,0 +1,87 @@
+# RunPod Local + Cloud Ollama Integration Guide
+
+This guide details how to seamlessly run small LLMs locally on your internal NVIDIA hardware and dynamically offload massive models (like `DeepSeek-R1-Distill-Llama-70B`) to an on-demand cloud GPU instance via RunPod.
+
+---
+
+## 🗺️ System Overview
+
+1. **Local Mode**: Uses your physical **RTX 4070 Ti Super (16GB)** for quick, cost-free inference on smaller models (e.g., 8B/14B).
+2. **Cloud Mode**: Spins up a remote **RTX A6000 (48GB)** or **A100** via RunPod to handle 70B+ models, streaming the text output directly back to your local environment.
+
+---
+
+## 🛠️ Method 1: Using the Pre-Configured Ollama Template
+*Use this option if you want RunPod to handle the model storage and expose a clean, public URL API endpoint that you can plug into frontends like Open WebUI, Chatbox, or custom Python applications.*
+
+### Step 1: Deploy the Pod
+1. Log into your **RunPod Dashboard** and click **Deploy**.
+2. Select an **RTX A6000 (48GB VRAM)** or an **NVIDIA A100**.
+3. Click **Choose Template** and select the official **Ollama** community template.
+4. Click **Advanced Options** and verify that Port `11434` (Ollama's default API port) is listed under **Exposed Ports**.
+5. Click **Deploy**.
+
+### Step 2: Download and Run the Model
+1. Once the pod shifts to a `Running` state, click **Connect**.
+2. Select **Start Web Terminal** or connect via **SSH**.
+3. Execute the execution command inside the terminal window to pull down and run the 70B variant:
+   ```bash
+   ollama run deepseek-r1:70b
+   ```
+   *(Data-center speeds will pull the ~43 GB footprint down in under a minute).*
+
+### Step 3: Link Your Local System to the Cloud API URL
+1. Back on your RunPod dashboard, look at your running pod card and locate the **Connect** or **HTTP Service** link next to Port `11434`.
+2. Copy the public proxy URL provided by RunPod (it will look similar to `https://runpod.net`).
+3. You can now feed this string directly into any local UI software. For example, if you use a local Python script, point your endpoint directly to the cloud proxy:
+   ```python
+   import openai
+
+   client = openai.OpenAI(
+       base_url="https://runpod.net/v1",
+       api_key="ollama" # Ollama ignores the key but requires a placeholder string
+   )
+   ```
+
+---
+
+## 🔗 Method 2: The Reverse SSH Tunnel (Unified Local Setup)
+*Use this method if you want your local Ubuntu command line to treat the cloud GPU like an internal graphics card extension.*
+
+### Step 1: Deploy a Raw Worker
+1. Go to RunPod and deploy an **RTX A6000 (48GB)**.
+2. Choose the **RunPod CUDA Base** template (*Do not choose the Ollama template for this specific method*).
+3. Ensure the **SSH Exposed** checkbox is enabled.
+4. Click **Deploy**.
+
+### Step 2: Establish the Reverse Tunnel Secure Bridge
+1. Click **Connect** on your active Pod card to view your unique connection variables:
+   ```bash
+   ssh -p [YOUR_POD_PORT] root@[YOUR_POD_IP]
+   ```
+2. Open a standard terminal window on your **local Ubuntu Desktop** and execute the following line to bind your internal Ollama server instance up to the cloud node:
+   ```bash
+   ssh -N -R 11434:localhost:11434 -p [YOUR_POD_PORT] root@[YOUR_POD_IP]
+   ```
+   *⚠️ Leave this terminal window open. Closing it severs the link.*
+
+### Step 3: Stream and Execute via the Cloud
+1. Open a **second terminal window** on your local Ubuntu desktop.
+2. Instruct the engine to pass calls over the active channel:
+   ```bash
+   export OLLAMA_HOST=127.0.0.1:11434
+   ollama run deepseek-r1:70b
+   ```
+
+---
+
+## 🛑 How to Properly Shut Down & Revert Locally
+
+When your session is complete and you want to stop the billing clock:
+
+1. Go to your **RunPod Dashboard** and click **Terminate** on the pod card to shut down the hardware instance completely.
+2. In your local terminal window, stop the active SSH command by pressing `Ctrl + C`.
+3. To switch back to using your physical local **RTX 4070 Ti Super**, simply run commands without the proxy prefix variables:
+   ```bash
+   ollama run deepseek-r1:8b
+   ```

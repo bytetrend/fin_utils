@@ -1,88 +1,128 @@
 import csv
+import os
+import re
 from typing import List, Tuple
 
 
-def process_csv(input_file_path: str) -> List[Tuple[str, str, int]]:
+def find_matching_files(input_folder: str) -> List[Tuple[str, int]]:
     """
-    Process CSV file and extract the best record per symbol based on highest SignalCount.
-
-    Assumptions:
-    - Input CSV has columns in this exact order (no header):
-      Symbol, Interval, BarNumber, BarDate, BarTime, SignalCount, ComputerDateTime
-    - Date/time formats: BarDate as 'YYYY-MM-DD', BarTime as 'HH:MM:SS'
-      ComputerDateTime as 'YYYY-MM-DD HH:MM:SS' or ISO format
-
-    Returns a list of tuples: (Symbol, Interval, SignalCount, ComputerDateTime)
+    Find all files in input_folder matching pattern AtsPriceBrkout-{Interval}.csv
+    Returns list of (filepath, interval) tuples sorted by interval.
     """
+    pattern = r'AtsPriceBrkout-(\d+)\.csv$'
+    matching = []
 
-    # Dictionary to store best record per symbol
-    # Key: Symbol, Value: (Interval, SignalCount, ComputerDateTime, BarDate, BarTime, BarNumber)
-    best_records = {}
+    for filename in os.listdir(input_folder):
+        match = re.match(pattern, filename)
+        if match:
+            interval = int(match.group(1))
+            filepath = os.path.join(input_folder, filename)
+            matching.append((filepath, interval))
+
+    return sorted(matching, key=lambda x: x[1])
+
+
+def process_csv_file(file_path: str, interval: int) -> List[Tuple[str, int, int]]:
+    """
+    Process a single CSV file and extract records with highest SignalCount per symbol.
+
+    Input CSV columns (no header):
+    - Column A: Symbol
+    - Column B: Interval value (may appear in data)
+    - Column D: Signal count value (largest value to extract)
+
+    Returns a list of tuples: (Symbol, Interval, MaxSignalCount)
+    """
+    symbol_signals = {}  # symbol -> list of signal counts
 
     try:
-        with open(input_file_path, 'r', newline='', encoding='utf-8') as csvfile:
+        with open(file_path, 'r', newline='', encoding='utf-8-sig') as csvfile:
             reader = csv.reader(csvfile)
 
-            for row in reader:
+            for row_num, row in enumerate(reader, start=1):
                 # Skip empty rows
                 if not row or all(cell.strip() == '' for cell in row):
                     continue
 
+                if len(row) < 4:
+                    continue
+
                 try:
-                    # Extract fields based on column order
-                    symbol, interval, bar_number, signal_count, computer_datetime = row[:5]
+                    symbol = row[0].strip()
+                    if not symbol:
+                        continue
 
-                    # Convert SignalCount to integer for comparison
-                    signal_count_int = int(signal_count.strip())
+                    # Parse column D (index 3) as int (signal count)
+                    signal_count = int(row[3].strip())
 
-                    record_key = f"{symbol.strip()}-{interval}"
+                    if symbol not in symbol_signals:
+                        symbol_signals[symbol] = []
+                    symbol_signals[symbol].append(signal_count)
 
-                    if record_key not in best_records:
-                        # First record for this symbol
-                        best_records[record_key] = (
-                            symbol.strip(),
-                            int(interval.strip()),
-                            signal_count_int
-                        )
-                    else:
-                        current_best = best_records[record_key]
-
-                        # Compare: highest SignalCount wins
-                        if signal_count_int > current_best[2]:
-                            best_records[record_key] = (
-                                symbol.strip(),
-                                int(interval.strip()),
-                                signal_count_int
-                            )
-
-                except ValueError as e:
-                    # Skip malformed rows with error logging (optional: add print statement)
+                except (ValueError, IndexError):
+                    # Skip malformed rows
                     pass
 
     except FileNotFoundError:
-        print(f"Error: File '{input_file_path}' not found.")
+        print(f"Error: File '{file_path}' not found.")
         return []
     except Exception as e:
-        print(f"Error processing file: {e}")
+        print(f"Error processing file {file_path}: {e}")
         return []
 
-    # Convert to output format
-    result = [(record[0], record[1],record[2]) for key, record in best_records.items()]
+    # Convert to output format - one record per symbol with max signal count
+    result = [(symbol, interval, max(signals)) for symbol, signals in symbol_signals.items()]
 
     return result
 
 
-def write_output_file(result_data: List[Tuple[str, str, int]], output_file_path: str):
-    """Write the results to a CSV file with columns: Symbol, Interval, signalcount, computerdatetime"""
+def process_folder(input_folder: str) -> List[Tuple[str, int, int]]:
+    """
+    Process all AtsPriceBrkout-{Interval}.csv files in the folder.
+    Returns combined results from all files.
+    """
+    all_records = {}  # key: (Symbol, Interval) -> MaxSignalCount
+
+    # Find matching files
+    matching_files = find_matching_files(input_folder)
+    if not matching_files:
+        print(f"No files matching pattern AtsPriceBrkout-{{Interval}}.csv found in {input_folder}")
+        return []
+
+    print(f"Found {len(matching_files)} file(s)")
+
+    # Process each file
+    for file_path, interval in matching_files:
+        print(f"  Processing {os.path.basename(file_path)} (interval={interval})...")
+        records = process_csv_file(file_path, interval)
+        print(f"    Loaded {len(records)} symbols")
+
+        for symbol, interval_val, signal_count in records:
+            key = (symbol, interval_val)
+            if key not in all_records or signal_count > all_records[key]:
+                all_records[key] = signal_count
+
+    # Convert to output format
+    result = [(symbol, interval, all_records[(symbol, interval)])
+              for symbol, interval in all_records.keys()]
+
+    return result
+
+
+def write_output_file(result_data: List[Tuple[str, int, int]], output_file_path: str):
+    """Write the results to a CSV file with columns: Symbol, Interval, MaxSignalCount"""
     try:
         with open(output_file_path, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
 
             # Write header
-            writer.writerow(['Symbol', 'Interval', 'signalcount'])
+            writer.writerow(['Symbol', 'Interval', 'MaxSignalCount'])
+
+            # Sort by Symbol, then by Interval
+            sorted_data = sorted(result_data, key=lambda r: (r[0], r[1]))
 
             # Write data rows
-            for row in result_data:
+            for row in sorted_data:
                 writer.writerow(row)
 
         return True
@@ -92,32 +132,89 @@ def write_output_file(result_data: List[Tuple[str, str, int]], output_file_path:
         return False
 
 
+def write_max_output_file(result_data: List[Tuple[str, int, int]], output_file_path: str):
+    """Write only the highest signal count per symbol to a CSV file."""
+    try:
+        # Group by symbol and keep only the max
+        best = {}  # symbol -> (symbol, interval, signal_count)
+        for symbol, interval, signal_count in result_data:
+            if symbol not in best or signal_count > best[symbol][2]:
+                best[symbol] = (symbol, interval, signal_count)
+
+        with open(output_file_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+
+            # Write header
+            writer.writerow(['Symbol', 'Interval', 'MaxSignalCount'])
+
+            # Sort by Symbol
+            sorted_data = sorted(best.values(), key=lambda r: r[0])
+
+            # Write data rows
+            for row in sorted_data:
+                writer.writerow(row)
+
+        return True
+
+    except Exception as e:
+        print(f"Error writing max output file: {e}")
+        return False
+
+
 # Example usage:
 if __name__ == "__main__":
     """
-    This script process a CSV file output from the MC indicator AtsPriceBreakout_screener.
-    Such script generate a count of entry signals for the strategy AtsPriceBreakout.
-    This script will collect them and pick the one with the largest count per each symbol and interval.
-    The script is loaded in charts with multiple data intervals 10, 20, 30 ticks, etc.
-    For multiple symbols. 
+    Process multiple AtsPriceBrkout-{Interval}.csv files from a folder.
+    This script collects all files matching the pattern and extracts the highest
+    signal count value (column D) per symbol for each interval.
+    
     Example usage:
-    pass input and output file example:
-    C:/Invest/logs/screener/AtsPriceBrkout.csv C:/Invest/logs/screener/pricebrkout_analysis.csv
+    python parse_screener_breakout_results.py <input_folder> [output_file.csv] [max_output_file.csv]
+    
+    Where input_folder contains files like:
+      AtsPriceBrkout-5.csv
+      AtsPriceBrkout-10.csv
+      AtsPriceBrkout-15.csv
     """
     import sys
 
-    if len(sys.argv) < 3:
-        print("Usage: python parse_screener_breakout_results.py <input_file.csv> <output_file.csv>")
+    if len(sys.argv) < 2:
+        print("Usage: python parse_screener_breakout_results.py <input_folder> [output_file.csv] [max_output_file.csv]")
         sys.exit(1)
 
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
+    input_folder = sys.argv[1]
+    
+    # Validate folder exists
+    if not os.path.isdir(input_folder):
+        print(f"Error: Folder '{input_folder}' not found.")
+        sys.exit(1)
+    
+    # Output files (both optional)
+    output_file = sys.argv[2] if len(sys.argv) >= 3 else None
+    max_output_file = sys.argv[3] if len(sys.argv) >= 4 else None
 
-    # Process the file
-    result_data = process_csv(input_file)
+    print(f"Reading from folder: {input_folder}")
 
-    # Write the output
-    if write_output_file(result_data, output_file):
-        print(f"Successfully processed {len(result_data)} symbols. Output written to: {output_file}")
+    # Process all files in folder
+    result_data = process_folder(input_folder)
+
+    if result_data:
+        # Write the main output
+        if output_file:
+            if write_output_file(result_data, output_file):
+                print(f"Output written to: {output_file}  ({len(result_data)} rows)")
+            else:
+                print("Failed to generate output file.")
+        
+        # Write the max output
+        if max_output_file:
+            if write_max_output_file(result_data, max_output_file):
+                print(f"Max output written to: {max_output_file}")
+            else:
+                print("Failed to generate max output file.")
+        
+        if not output_file and not max_output_file:
+            print(f"Processed {len(result_data)} records. No output file specified.")
     else:
-        print("Failed to generate output file.")
+        print("No valid data found.")
+        sys.exit(1)

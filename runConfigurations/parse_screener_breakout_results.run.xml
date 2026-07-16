@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="parse_screener_breakout_results" type="PythonConfigurationType" factoryName="Python" folderName="volatility">
+  <configuration default="false" name="parse_screener_breakout_results" type="PythonConfigurationType" factoryName="Python" folderName="screener">
     <module name="fin_utils" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -13,7 +13,7 @@
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <option name="SCRIPT_NAME" value="$PROJECT_DIR$/src/optimizer/parse_screener_breakout_results.py" />
-    <option name="PARAMETERS" value="$PROJECT_DIR$/../../logs/screener/AtsPriceBrkout.csv $PROJECT_DIR$/../../logs/screener/pricebrkout_analysis.csv" />
+    <option name="PARAMETERS" value="$PROJECT_DIR$/../../logs/screener $PROJECT_DIR$/../../logs/screener/signal_counts_per_interval.csv $PROJECT_DIR$/../../logs/screener/symbol_best_counts.csv" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
