@@ -1,7 +1,7 @@
 # ats_feature_importance.py
 
-Ranks which entry-filter parameters matter most for `AtsPriceQuickReversal` /
-`AtsPriceBrkout` trade outcomes, using cross-validated classifier feature
+Ranks which entry-filter parameters matter most for `AtsFastReversal` /
+`AtsSlowReversal` trade outcomes, using cross-validated classifier feature
 importance (Random Forest or Gradient Boosting + permutation importance) and,
 if `shap` is installed, an independent SHAP cross-check.
 

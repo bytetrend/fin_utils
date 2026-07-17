@@ -1,14 +1,14 @@
-# AtsPriceQuickReversal — Strategy Optimization Context
+# AtsFastReversal — Strategy Optimization Context
 
 ## Overview
 
 Two related reversal strategies built in MultiCharts PowerLanguage, sharing almost identical
 logic. Both identify setups where price trended too far too fast and then reverses.
 
-**AtsPriceQuickReversal** — C12 requires HMA Fast to be above/below HMA Slow AT the turn point.
+**AtsFastReversal** — C12 requires HMA Fast to be above/below HMA Slow AT the turn point.
 The entry dot on the chart is **yellow**.
 
-**AtsPriceBrkout** — C12 requires HMA Slow to have already crossed above/below HMA Fast BEFORE
+**AtsSlowReversal** — C12 requires HMA Slow to have already crossed above/below HMA Fast BEFORE
 the turn. The reversal transitions slower. The entry dot is **bright green**.
 
 The indicator fires a signal; the strategy executes the entry. Charts are tick-based (10–50
@@ -24,8 +24,8 @@ ticks per bar). `SignalBar` = `ind_BarNumber`. `BarNumber` in the strategy can e
 | RED line | HMA Fast — the primary trend indicator |
 | CYAN solid line | HMA Slow — the baseline trend |
 | Dotted line | MultiCharts trade path from entry to exit (not an indicator) |
-| Yellow dot at HMA turn | AtsPriceQuickReversal signal |
-| Bright green dot at HMA turn | AtsPriceBrkout signal |
+| Yellow dot at HMA turn | AtsFastReversal signal |
+| Bright green dot at HMA turn | AtsSlowReversal signal |
 | Orange dotted line | Prof_0 — first profit target level |
 | Yellow horizontal line | Trailing stop level |
 | Red horizontal line | Hard stop limit |
@@ -394,7 +394,7 @@ Designed to minimize token usage — run locally and share output table only.
 6. **TrendBarCount zero guard** — wrap with MaxList(1, MinList(...)) in both branches.
 7. **RevATRsPerSec vs P/L magnitude** — test correlation within ProfitHit subset only.
    May predict size of win rather than whether any profit is hit.
-8. **AtsPriceBrkout analysis** — CSV available but not yet analyzed in depth.
+8. **AtsSlowReversal analysis** — CSV available but not yet analyzed in depth.
    Known: same parameters, different C12 (slow already crossed before turn).
 
 ---

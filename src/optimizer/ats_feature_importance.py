@@ -7,8 +7,8 @@ Reports AUC first — if it's near 0.5 (or even below it), it says explicitly th
 Uses permutation importance (unbiased, unlike raw impurity importance) plus an independent SHAP cross-check
 On your data: AUC came in at 0.369 (long) and 0.358 (short) — both below chance, which the script now explicitly flags as "sampling noise, not an inverse signal," not something to act on
 
-Ranks which entry-filter parameters matter most for AtsPriceQuickReversal /
-AtsPriceBrkout trade outcomes, using cross-validated classifier feature
+Ranks which entry-filter parameters matter most for AtsFastReversal /
+AtsSlowReversal trade outcomes, using cross-validated classifier feature
 importance (Random Forest + permutation importance) and, if the `shap`
 package is installed, SHAP values for interaction / directional effects.
 

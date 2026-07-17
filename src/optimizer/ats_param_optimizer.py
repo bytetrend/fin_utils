@@ -2,7 +2,7 @@
 """
 ats_param_optimizer.py
 
-Optimizes entry-filter parameters for AtsPriceQuickReversal / AtsPriceBrkout
+Optimizes entry-filter parameters for AtsFastReversal / AtsSlowReversal
 trade logs and recommends parameter changes.
 
 Methodology (matches the strategy's documented analysis rules):

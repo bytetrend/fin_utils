@@ -1,7 +1,7 @@
 # ats_entryscore_weight_optimizer.py
 
 Optimizes the per-component **weights** (and the score cutoff) of the
-`AtsPriceQuickReversal` / `AtsPriceBrkout` `EntryScore` formula:
+`AtsFastReversal` / `AtsSlowReversal` `EntryScore` formula:
 
 ```
 EntryScore = W1 * IFF(C5, 1, 0)                                  // Speed flip

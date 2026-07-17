@@ -1,6 +1,6 @@
 # ats_param_optimizer.py
 
-Optimizes entry-filter parameters for `AtsPriceQuickReversal` / `AtsPriceBrkout` trade
+Optimizes entry-filter parameters for `AtsFastReversal` / `AtsSlowReversal` trade
 logs and recommends parameter changes, using the same methodology as the strategy's
 own documented analysis rules.
 
@@ -97,7 +97,7 @@ make the numbers concrete instead of abstract.
 
 ```json
 {
-  "csv_path": "C:\\Invest\\logs\\merged\\AtsPriceQuickReversal-merged.csv",
+  "csv_path": "C:\\Invest\\logs\\merged\\AtsFastReversal-merged.csv",
   "min_n": 30,
   "long": { ... },
   "short": { ... }

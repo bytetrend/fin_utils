@@ -8,7 +8,7 @@ LOG_SIGNAL_DIR = r"C:\Invest\logs\signal"
 LOG_IND_DIR = r"C:\Invest\logs\ind"
 OUT_DIR = r"C:\Invest\logs\merged"
 TEMP_OUT_DIR = r"C:\Invest\logs\merged_tmp"
-STRATEGIES = ["AtsPriceBrkout", "AtsPriceQuickReversal","AtsSlowReversal","AtsFastReversal"]
+STRATEGIES = ["AtsSlowReversal", "AtsFastReversal","AtsSlowReversal","AtsFastReversal"]
 
 os.makedirs(TEMP_OUT_DIR, exist_ok=True)
 

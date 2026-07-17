@@ -1,8 +1,8 @@
 """
 ATS Performance Report
 ======================
-Generates a TradeStation-style performance report from the AtsPriceQuickReversal
-(or AtsPriceBrkout) merged CSV trade file.
+Generates a TradeStation-style performance report from the AtsFastReversal
+(or AtsSlowReversal) merged CSV trade file.
 
 Usage:
     python ats_performance_report.py <csv_file> [--strategy NAME] [--excel FILE] [--output FILE]

@@ -1,7 +1,7 @@
 # ats_optuna_optimizer.py
 
-Bayesian (Optuna/TPE) threshold optimization for `AtsPriceQuickReversal` /
-`AtsPriceBrkout` entry-filter parameters.
+Bayesian (Optuna/TPE) threshold optimization for `AtsFastReversal` /
+`AtsSlowReversal` entry-filter parameters.
 
 This is a different tool than `ats_param_optimizer.py`. The grid sweep in that
 script tests one or two parameters at a time. This script searches **all**
