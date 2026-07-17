@@ -29,7 +29,7 @@ ticks per bar). `SignalBar` = `ind_BarNumber`. `BarNumber` in the strategy can e
 | Orange dotted line | Prof_0 — first profit target level |
 | Yellow horizontal line | Trailing stop level |
 | Red horizontal line | Hard stop limit |
-| CVD panel (middle) | CVDAvg = magenta line. CVDAcel histogram: CYAN = above limit, DARK GREEN = below limit. CVDDelta = yellow dots |
+| CVD panel (middle) | CVDAvg = magenta line. CVDAcel histogram: CYAN = above limit, DARK GREEN = below limit. CVDDeltaPct = yellow dots |
 | PipSpeed panel (bottom) | CYAN bars = above limit (±1). MAGENTA bars = below limit. YELLOW bar = transition bar (crossing zero) |
 
 ---
@@ -99,7 +99,7 @@ logic detecting a pause in the move), not fixed levels.
 |---|---|
 | ind_SignalSent | 1 = long, -1 = short |
 | ind_CVDAvg | CVD average — directional volume in trade direction. Only counts ticks moving higher/lower than previous tick (not standard CVD). Magenta line in CVD panel |
-| ind_CVDDelta | Per-bar difference between upticks and downticks. Yellow dots in CVD panel |
+| ind_CVDDeltaPct | Per-bar difference between upticks and downticks. Yellow dots in CVD panel |
 | ind_CVDAcel | CVD acceleration = CVDAvg / time. Cyan histogram when above limit, dark green when below |
 | ind_RevATRsPerSec | Reversal speed in ATRs/sec from peak to current bar |
 | ind_DeltaATRs | ATRs prior trend traveled — over MaxLength (CAPPED). Legacy metric |
@@ -172,7 +172,7 @@ Score_C5     = IFF(C5, W_C5, 0)           // Speed flip — strongest visual sig
 Score_RevSec = IFF(C13, W_RevSec, 0)      // Fast reversal
 Score_CVDAvg = IFF(C6, W_CVDAvg, 0)       // Volume in direction
 Score_CVDAcl = IFF(C10, W_CVDAcl, 0)      // Volume acceleration
-Score_CVDDlt = IFF(CVDDelta confirms, W_CVDDlt, 0)
+Score_CVDDlt = IFF(CVDDeltaPct confirms, W_CVDDlt, 0)
 Score_GapCV  = IFF(C9, W_GapCV, 0)        // Consistent HMA gap
 Score_PSPct  = IFF(C7, W_PSPct, 0)        // Sustained prior trend speed
 
@@ -298,14 +298,14 @@ The transition (C5) is the most important PipSpeed signal.
 - PipSpeed panel: **sustained CYAN blocks** across most of the prior trend bars
 - Transition bar: YELLOW dot — speed crossed zero cleanly in one bar
 - CVDAcel histogram: sustained cyan during prior trend and at the turn
-- CVDDelta yellow dots: large concentrated spike at the turn bar
+- CVDDeltaPct yellow dots: large concentrated spike at the turn bar
 - HMA fast/slow gap: large and consistent throughout the trend (low HMAGapCV)
 
 ### Losers (MRNA 11:36, NVDL-6/10 11:56 and 12:49)
 - Prior trend: short, shallow, or a minor bounce within an existing opposite trend
 - PipSpeed panel: mostly MAGENTA or brief/weak cyan — not sustained
 - CVDAcel histogram: dark green or brief spike only
-- CVDDelta yellow dots: small and scattered
+- CVDDeltaPct yellow dots: small and scattered
 - HMA fast/slow gap: small — RED barely separated from CYAN (low DeltaATRs)
 
 ### Key Loser Pattern — Counter-Trend Bounce

@@ -8,7 +8,7 @@ EntryScore = W1 * IFF(C5, 1, 0)                                  // Speed flip
            + W2 * IFF(RevATRsPerSec > RevATRsPerSecLim, 1, 0)    // Fast reversal   (== C13)
            + W3 * IFF(CVDAvg >= CVDAvgLim, 1, 0)                 // Volume directional (== C6)
            + W4 * IFF(CountIf(CVDAcel>=CVDAcelLim,2)>0, 1, 0)    // Accel last 2 bars  (== C10)
-           + W5 * IFF(CVDDelta>0, 1, 0)                          // Delta confirms
+           + W5 * IFF(CVDDeltaPct>0, 1, 0)                          // Delta confirms
            + W6 * IFF(C7, 1, 0)                                  // PipSpeedPct >= HMinPipSpeedPct
            + W7 * IFF(C9, 1, 0)                                  // HMAGapCV <= HMinHMAGapCV
 
@@ -44,7 +44,7 @@ columns, matching your formula exactly:
 | Fast reversal (C13) | `ind_C13` | flag != 0 |
 | Volume directional (C6) | `ind_C6` | flag != 0 |
 | CVD accel last 2 bars (C10) | `ind_C10` | flag != 0 |
-| CVDDelta confirms | `ind_CVDDelta` | value > 0 |
+| CVDDeltaPctPct confirms | `ind_CVDDeltaPct` | value > 0 |
 | PipSpeedPct sustained (C7) | `ind_C7` | flag != 0 |
 | HMAGapCV consistent (C9) | `ind_C9` | flag != 0 |
 
@@ -59,7 +59,7 @@ column if one exists in your CSV (in one dataset it matched ~90% of rows,
 off by ±1 elsewhere). This script optimizes from the **raw components**
 directly, not from a logged `EntryScore` column, so that mismatch doesn't
 affect its results — but if you see it, it's worth checking whether your
-`CVDDelta > 0` condition should be direction-normalized (i.e. different for
+`CVDDeltaPct > 0` condition should be direction-normalized (i.e. different for
 long vs. short) in the live engine.
 
 ## Basic usage
@@ -129,7 +129,7 @@ Optuna-optimized weights (2000 trials searched):
     Fast reversal (C13)              weight = 3   ###
     Volume directional (C6)          weight = 0   -
     CVD accel last 2 bars (C10)      weight = 3   ###
-    CVDDelta confirms                weight = 0   -
+    CVDDeltaPct confirms                weight = 0   -
     PipSpeedPct sustained (C7)       weight = 3   ###
     HMAGapCV consistent (C9)         weight = 0   -
   Score threshold: EntryScore >= 3  (max possible score = 10)
@@ -230,9 +230,9 @@ Optuna-optimized weights (2000 trials searched):
   (the same way the earlier `FullDeltaATRs` threshold finding was confirmed
   by testing it again on a separate dataset) before changing the live
   strategy.
-- **The CVDDelta direction-normalization question.** If your CSV's logged
+- **The CVDDeltaPct direction-normalization question.** If your CSV's logged
   `EntryScore` doesn't match the plain sum of these 7 components, check
-  whether `CVDDelta > 0` should flip sign for short trades in your engine.
+  whether `CVDDeltaPct > 0` should flip sign for short trades in your engine.
   Using the wrong convention here would make this script optimize weights
   against a component that isn't quite the one your engine actually uses.
 - **Long and short almost certainly need different weights.** The script

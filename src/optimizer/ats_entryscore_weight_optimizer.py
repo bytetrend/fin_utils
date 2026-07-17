@@ -9,7 +9,7 @@ AtsPriceQuickReversal / AtsPriceBrkout EntryScore formula:
                + W2 * IFF(RevATRsPerSec > RevATRsPerSecLim, 1, 0)    // Fast reversal   (== C13)
                + W3 * IFF(CVDAvg >= CVDAvgLim, 1, 0)                 // Volume directional (== C6)
                + W4 * IFF(CountIf(CVDAcel>=CVDAcelLim,2)>0, 1, 0)    // Accel last 2 bars  (== C10)
-               + W5 * IFF(CVDDelta>0, 1, 0)                          // Delta confirms
+               + W5 * IFF(CVDDeltaPct>0, 1, 0)                          // Delta confirms
                + W6 * IFF(C7, 1, 0)                                  // PipSpeedPct >= HMinPipSpeedPct
                + W7 * IFF(C9, 1, 0)                                  // HMAGapCV <= HMinHMAGapCV
 
@@ -33,7 +33,7 @@ searches a shared integer weight per binary component plus one score cutoff
 -- the actual decision variables in your EntryScore formula.
 
 Component columns are auto-detected from your CSV's own C-flags (C5, C13, C6,
-C10, C7, C9) plus a direct CVDDelta > 0 check, matching your formula exactly.
+C10, C7, C9) plus a direct CVDDeltaPct > 0 check, matching your formula exactly.
 Override with --components if your column names differ.
 
 Usage:
@@ -71,7 +71,7 @@ DEFAULT_COMPONENTS = [
     ("Fast reversal (C13)",          "ind_C13",      "flag"),
     ("Volume directional (C6)",      "ind_C6",       "flag"),
     ("CVD accel last 2 bars (C10)",  "ind_C10",      "flag"),
-    ("CVDDelta confirms",           "ind_CVDDelta", "gt0"),
+    ("CVDDeltaPct confirms",           "ind_CVDDeltaPct", "gt0"),
     ("PipSpeedPct sustained (C7)",   "ind_C7",       "flag"),
     ("HMAGapCV consistent (C9)",     "ind_C9",       "flag"),
 ]
