@@ -161,3 +161,82 @@ LONG  (n=55, baseline hit rate=23.6%)
 4. Only change a live parameter once a filter has survived the held-out test
    window in `ats_optuna_optimizer.py` with an adequate sample size — not
    from the importance ranking alone.
+
+## JSON report: fields explained
+
+When `--output` is provided the script writes a structured JSON report (example: `data/AtsFastReversal_feature_importance_report.json`). Key fields:
+
+- csv_path: path to the source CSV used to build the report.
+- model: classifier used ("random_forest" or "gradient_boosting").
+- cv_folds: number of cross-validation folds used.
+
+Per-direction object ("long" / "short") contains:
+- direction_label: textual label (e.g. "long").
+- n: number of trades in this direction (sample size).
+- baseline_hit_rate: fraction of winning trades in the unfiltered set (ProfitHit mean).
+- cv_auc: cross-validated ROC-AUC (mean across folds). Check this first: ~0.5 = no signal.
+- cv_auc_std: standard deviation of per-fold AUC values.
+- has_signal: boolean; true only if cv_auc is meaningfully above chance (script uses ~= AUC - 0.5 >= 0.05).
+- model_used: the model name used to generate importances.
+- importances: ordered array of parameter importance objects (descending by permutation_importance_mean).
+  Each importance entry has:
+  - param: column name.
+  - permutation_importance_mean: mean drop in ROC-AUC when the column is permuted (higher = more important).
+  - permutation_importance_std: stddev of that drop across folds / repeats.
+  - direction_of_effect: heuristic string derived from medians ("higher = more likely to win", "lower = more likely to win", "unclear").
+  - hit_median: median value of that parameter for winning trades.
+  - loss_median: median value of that parameter for losing trades.
+- warning: optional human-readable warning when the direction is unreliable (e.g., too few trades, AUC≈0.5, or AUC<0.5).
+- shap: optional dict mapping parameter -> mean |SHAP value| (if SHAP computed). This is an independent interaction-aware importance cross-check.
+
+Top-level report may also include (when entry-path stratification was requested):
+- entry_path_config: dict with resolved pattern_col, cvd_col and the min thresholds used.
+- by_entry_path: nested objects dividing each direction into buckets (pattern_only, cvd_only, both, neither), each with the same DirectionModelResult structure.
+
+## How to use the report to improve profitability
+
+1. Always check cv_auc first:
+   - cv_auc ≈ 0.50 (or warning present) → treat ranking as noisy. Do not change live parameters.
+   - cv_auc significantly > 0.5 (script sets ~0.55+ as meaningful) → ranking is potentially actionable.
+   - cv_auc < 0.5 → not evidence of an inverse predictive relationship; treat as noise.
+
+2. Prioritize parameters by permutation_importance_mean, not by SHAP alone. Use SHAP as corroboration: agreement increases confidence.
+
+3. Use direction_of_effect to choose threshold direction (>= vs <=). Example: "higher = more likely to win" suggests a filter like param >= X may increase hit-rate — but the JSON does NOT provide the threshold value.
+
+4. Use medians to initialize threshold search ranges: pick candidate thresholds between loss_median and hit_median (or beyond), then run `ats_optuna_optimizer.py` or `ats_param_optimizer.py` to find numeric thresholds and validate on held-out data.
+
+5. Favor parameters with both:
+   - non-trivial permutation_importance_mean (well above 0), and
+   - non-zero SHAP mean (if available), and
+   - a stable direction_of_effect across long/short or across entry-path buckets.
+   Those are the highest-conviction candidates to include in optimizer searches.
+
+6. Beware negative or near-zero importances and large stddevs: if permutation_importance_mean ≈ 0 or negative, that parameter likely adds noise.
+
+7. Sample-size caution: when n is small (< ~60 by default) the script skips the model. If n is modest (60–200), prefer a narrower parameter set and stronger cross-validation; require larger held-out test sizes before live changes.
+
+8. Entry-path stratification: if `entry_path_config` is present, compare importances across `pattern_only` vs `cvd_only` vs `both`. If a parameter's direction_of_effect flips between these buckets, treat the entry paths separately when designing filters.
+
+9. Deployment flow (practical):
+   - Run this script → shortlist 2–5 top parameters per direction (and per entry-path bucket if present).
+   - Run `ats_optuna_optimizer.py` constrained to those params to search numeric thresholds and validate with a held-out test window.
+   - Only deploy filters whose test_expectancy convincingly beats baseline and have adequate test_n. Monitor live performance and be ready to rollback.
+
+## Example notes from `data/AtsFastReversal_feature_importance_report.json`
+
+- LONG: n=143, cv_auc=0.506 (cv_auc_std≈0.090), has_signal=false. The script included a warning: "cv_auc ... is close to 0.5". Interpretation: the ranking exists but is likely noisy; do not act on it without further validation. If a parameter nonetheless shows consistent top rank and non-trivial SHAP, consider running the optimizer on that small set.
+
+- SHORT: n=135, cv_auc=0.440 (cv_auc_std≈0.067), has_signal=false and warning indicates AUC below 0.5 — treat the ranking as noise, not an inverse signal.
+
+- Top-long param in the report: `ind_DeltaPips` has permutation_importance_mean≈0.029 and direction_of_effect="higher = more likely to win". That suggests it is the most informative feature in the set for longs, but given cv_auc≈0.506 the effect is marginal — next step is a focused threshold search and strict held-out validation.
+
+## Quick checklist before changing live parameters
+
+- Is cv_auc meaningfully > 0.5 and has_signal == true? Prefer yes.
+- Do both permutation importance and SHAP (if present) agree on the parameter ranking? Prefer yes.
+- Is test/holdout validation (from optimizer scripts) confirming expectancy improvement vs baseline? Required.
+- Is sample size in the test window adequate (rule-of-thumb: ≥ 20–30 trades)? Prefer yes.
+
+If any are missing, treat the report as guidance for search-space pruning, not a deployment verdict.
+

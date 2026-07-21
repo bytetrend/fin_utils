@@ -5,7 +5,11 @@ import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.tree import DecisionTreeClassifier, export_text
 
-# Part 1: The Machine Learning Python TemplateSave this script as multicharts_ml_optimizer.py inside your RunPod Jupyter or code execution environment. Place your exported MultiCharts CSV in the same folder.This script loads the data via pandas, trains a Random Forest Regressor to find non-linear feature importances, and applies a Decision Tree to map out the exact parameter boundaries (clusters) that yield maximum profit with minimum drawdown.
+# Part 1: The Machine Learning Python TemplateSave this script as multicharts_ml_optimizer.py inside your RunPod
+# Jupyter or code execution environment. Place your exported MultiCharts CSV in the same folder.This script
+# loads the data via pandas, trains a Random Forest Regressor to find non-linear feature importances,
+# and applies a Decision Tree to map out the exact parameter boundaries (clusters) that yield maximum
+# profit with minimum drawdown.
 # =====================================================================
 # 1. CONFIGURATION & CONFIG ZONE
 # =====================================================================

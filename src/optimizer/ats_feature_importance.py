@@ -2,11 +2,6 @@
 """
 ats_feature_importance.py
 
-Trains a Random Forest (or Gradient Boosting) to predict win/loss from your ind_* columns, cross-validated
-Reports AUC first — if it's near 0.5 (or even below it), it says explicitly that the ranking below is noise, not signal
-Uses permutation importance (unbiased, unlike raw impurity importance) plus an independent SHAP cross-check
-On your data: AUC came in at 0.369 (long) and 0.358 (short) — both below chance, which the script now explicitly flags as "sampling noise, not an inverse signal," not something to act on
-
 Ranks which entry-filter parameters matter most for AtsFastReversal /
 AtsSlowReversal trade outcomes, using cross-validated classifier feature
 importance (Random Forest + permutation importance) and, if the `shap`
@@ -34,12 +29,19 @@ Honesty guardrails baked in:
   - Small-sample warning if a direction has too few trades for a stable
     model (default threshold: 60 trades minimum to attempt modeling).
 
+NEW: Entry-path stratification. If your strategy enters via
+`(PatternEntryScore >= Min Or CVDEntryScore >= Min)`, a single pooled
+long/short analysis can mix two distinct trade populations. Pass
+--min-pattern-score and --min-cvd-score to additionally split each direction
+into pattern_only / cvd_only / both subsets and analyze each separately.
+
 Usage:
     python ats_feature_importance.py trades.csv
     python ats_feature_importance.py trades.csv --model gradient_boosting --cv-folds 5
     python ats_feature_importance.py trades.csv --params ind_FullDeltaATRs,ind_FullAngle,ind_ATRsFromHma
     python ats_feature_importance.py trades.csv --output importance_report.json
     python ats_feature_importance.py trades.csv --no-shap   # skip SHAP even if installed
+    python ats_feature_importance.py trades.csv --min-pattern-score 3 --min-cvd-score 4
 
 Requires: pandas, numpy, scikit-learn. Optional: shap (for interaction/direction plots data).
 """
@@ -71,7 +73,7 @@ NON_PARAM_COLUMNS = {
     "ExitTime", "ExitName", "ExitPrice", "Shares", "Profit/Loss", "BarNumber",
     "SignalBar", "R/T", "ind_BarDate", "ind_BarTime", "ind_BarNumber",
     "ind_Tick", "ind_SignalSent", "ind_Close", "ind_R/T", "ind_computertime",
-    "ProfitHit",
+    "ProfitHit", "ind_Interval", "ind_Tick", "ind_BarDate", "ind_BarTime", "ind_BarNumber"
 }
 MIN_TRADES_FOR_MODEL = 60
 
@@ -106,6 +108,80 @@ def load_trades(csv_path: str) -> pd.DataFrame:
         raise ValueError("CSV must have 'Profit/Loss' and 'ind_SignalSent' columns.")
     df["ProfitHit"] = (df["Profit/Loss"] > 0).astype(int)
     return df
+
+
+# --------------------------------------------------------------------------
+# Entry-path stratification: if your strategy fires on
+# (PatternEntryScore >= Min Or CVDEntryScore >= Min), a pooled long/short
+# analysis mixes two potentially distinct trade populations. These helpers
+# split each direction into pattern_only / cvd_only / both subsets so each
+# can be analyzed on its own.
+# --------------------------------------------------------------------------
+PATTERN_SCORE_COL_CANDIDATES = ["ind_PatternEntryScore", "ind_SpeedEntryScore"]
+CVD_SCORE_COL_CANDIDATES = ["ind_CVDEntryScore"]
+
+
+def autodetect_column(df: pd.DataFrame, candidates: list, override: Optional[str] = None) -> Optional[str]:
+    if override:
+        return override if override in df.columns else None
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
+
+
+def compute_entry_path(df: pd.DataFrame, pattern_col: str, cvd_col: str,
+                        min_pattern: float, min_cvd: float) -> pd.Series:
+    """Returns a Series of 'pattern_only' / 'cvd_only' / 'both' / 'neither'
+    per trade, based on which side of the (PatternEntryScore Or CVDEntryScore)
+    OR-gate actually fired. 'neither' should be rare/absent in a clean log
+    (a trade shouldn't have been taken if neither cleared its minimum) but is
+    kept as a visible bucket rather than silently dropped, in case of logging
+    quirks or a formula that's evolved since the trade was taken."""
+    pattern_fired = df[pattern_col] >= min_pattern
+    cvd_fired = df[cvd_col] >= min_cvd
+    path = np.select(
+        [pattern_fired & cvd_fired, pattern_fired & ~cvd_fired, (~pattern_fired) & cvd_fired],
+        ["both", "pattern_only", "cvd_only"],
+        default="neither",
+    )
+    return pd.Series(path, index=df.index)
+
+
+def resolve_entry_path_config(df: pd.DataFrame, args) -> Optional[dict]:
+    """Returns a dict with resolved column names if entry-path splitting is
+    requested and possible, else None (script behaves exactly as before)."""
+    if args.min_pattern_score is None or args.min_cvd_score is None:
+        return None
+    pattern_col = autodetect_column(df, PATTERN_SCORE_COL_CANDIDATES, args.pattern_score_col)
+    cvd_col = autodetect_column(df, CVD_SCORE_COL_CANDIDATES, args.cvd_score_col)
+    if pattern_col is None or cvd_col is None:
+        missing = []
+        if pattern_col is None:
+            missing.append(f"pattern score column (tried {args.pattern_score_col or PATTERN_SCORE_COL_CANDIDATES})")
+        if cvd_col is None:
+            missing.append(f"cvd score column (tried {args.cvd_score_col or CVD_SCORE_COL_CANDIDATES})")
+        print(f"WARNING: --min-pattern-score/--min-cvd-score given but couldn't find: {'; '.join(missing)}. "
+              f"Skipping entry-path stratification. Use --pattern-score-col/--cvd-score-col to specify exact "
+              f"column names if your CSV uses different ones.")
+        return None
+    return {"pattern_col": pattern_col, "cvd_col": cvd_col,
+            "min_pattern": args.min_pattern_score, "min_cvd": args.min_cvd_score}
+
+
+def add_entry_path_args(ap):
+    ap.add_argument("--min-pattern-score", type=float, default=None,
+                    help="Enables entry-path stratification (requires --min-cvd-score too). "
+                         "The MinPatternEntryScore threshold used live, so trades can be classified "
+                         "as pattern_only / cvd_only / both based on which side of the OR-gate fired.")
+    ap.add_argument("--min-cvd-score", type=float, default=None,
+                    help="Companion to --min-pattern-score; the MinCVDEntryScore threshold used live.")
+    ap.add_argument("--pattern-score-col", default=None,
+                    help=f"Column holding the PatternEntryScore value. Auto-detected from "
+                         f"{PATTERN_SCORE_COL_CANDIDATES} if not given.")
+    ap.add_argument("--cvd-score-col", default=None,
+                    help=f"Column holding the CVDEntryScore value. Auto-detected from "
+                         f"{CVD_SCORE_COL_CANDIDATES} if not given.")
 
 
 def get_param_columns(df: pd.DataFrame, explicit: Optional[list] = None) -> list:
@@ -324,6 +400,7 @@ def main():
     ap.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     ap.add_argument("--no-shap", action="store_true", help="Skip SHAP computation even if installed")
     ap.add_argument("--output", default=None, help="Optional path to write the full JSON report")
+    add_entry_path_args(ap)
     args = ap.parse_args()
 
     df = load_trades(args.csv_path)
@@ -341,19 +418,62 @@ def main():
         print("  (shap not installed -- skipping SHAP cross-check. "
               "pip install shap --break-system-packages to enable it.)")
 
-    long_result = analyze_direction(long_df, "long", params, args.model, args.cv_folds, args.seed, not args.no_shap)
-    short_result = analyze_direction(short_df, "short", params, args.model, args.cv_folds, args.seed + 1, not args.no_shap)
+    path_cfg = resolve_entry_path_config(df, args)
+    if path_cfg:
+        print(f"  Entry-path stratification ON: pattern_col={path_cfg['pattern_col']} "
+              f"(>= {path_cfg['min_pattern']}), cvd_col={path_cfg['cvd_col']} (>= {path_cfg['min_cvd']})")
 
-    long_shap = None
-    short_shap = None
-    if not args.no_shap and SHAP_AVAILABLE:
-        if long_result.importances:
-            long_shap = shap_summary(long_df, params, args.model, args.seed)
-        if short_result.importances:
-            short_shap = shap_summary(short_df, params, args.model, args.seed + 1)
+    def run_one(sub_df: pd.DataFrame, label: str, seed_offset: int, use_params: list):
+        result = analyze_direction(sub_df, label, use_params, args.model, args.cv_folds,
+                                    args.seed + seed_offset, not args.no_shap)
+        shap_vals = None
+        if not args.no_shap and SHAP_AVAILABLE and result.importances:
+            shap_vals = shap_summary(sub_df, use_params, args.model, args.seed + seed_offset)
+        print_result(result, shap_vals)
+        return result, shap_vals
 
-    print_result(long_result, long_shap)
-    print_result(short_result, short_shap)
+    all_results = {}  # label -> (result, shap_vals)
+
+    long_result, long_shap = run_one(long_df, "long", 0, params)
+    short_result, short_shap = run_one(short_df, "short", 1, params)
+    all_results["long"] = (long_result, long_shap)
+    all_results["short"] = (short_result, short_shap)
+
+    by_entry_path = {}
+    if path_cfg:
+        # Within a pattern_only/cvd_only bucket, the score column that DEFINES
+        # that bucket is tautological (near-constant by construction), not an
+        # independent finding -- exclude it from that bucket's candidate list.
+        # In the "both" and whole-direction analyses, both scores are kept,
+        # since they're legitimate candidates there.
+        params_excl_pattern = [p for p in params if p != path_cfg["pattern_col"]]
+        params_excl_cvd = [p for p in params if p != path_cfg["cvd_col"]]
+        params_by_path = {
+            "pattern_only": params_excl_pattern,
+            "cvd_only": params_excl_cvd,
+            "both": params,
+            "neither": params,
+        }
+
+        print(f"\n{'#'*72}")
+        print(" ENTRY-PATH BREAKDOWN")
+        print(f"{'#'*72}")
+        seed_offset = 2
+        for direction_label, direction_df in [("long", long_df), ("short", short_df)]:
+            path_series = compute_entry_path(direction_df, path_cfg["pattern_col"], path_cfg["cvd_col"],
+                                               path_cfg["min_pattern"], path_cfg["min_cvd"])
+            by_entry_path[direction_label] = {}
+            for path_name in ["pattern_only", "cvd_only", "both", "neither"]:
+                sub = direction_df[path_series == path_name].reset_index(drop=True)
+                if path_name == "neither" and len(sub) == 0:
+                    continue  # don't clutter output with an empty, expected-absent bucket
+                sub_label = f"{direction_label} ({path_name})"
+                if len(sub) == 0:
+                    print(f"\n{'='*72}\n {sub_label.upper()}\n{'='*72}\n  n=0 -- no trades in this bucket.")
+                    continue
+                r, s = run_one(sub, sub_label, seed_offset, params_by_path[path_name])
+                by_entry_path[direction_label][path_name] = (r, s)
+                seed_offset += 1
 
     print(f"\n{'='*72}")
     print(" HOW TO USE THIS")
@@ -364,6 +484,10 @@ def main():
     print("  ats_optuna_optimizer.py's --params list, instead of searching all of them.")
     print("- 'Direction of effect' tells you which way to set a threshold (>= vs <=),")
     print("  but NOT the right threshold value -- use the optimizer scripts for that.")
+    if path_cfg:
+        print("- If a parameter's importance or direction differs between pattern_only and")
+        print("  cvd_only for the same direction, that's a real reason to treat the two entry")
+        print("  paths as needing different parameters, not one shared set.")
 
     if args.output:
         report = {
@@ -371,6 +495,15 @@ def main():
             "long": {**asdict(long_result), "shap": long_shap},
             "short": {**asdict(short_result), "shap": short_shap},
         }
+        if path_cfg:
+            report["entry_path_config"] = path_cfg
+            report["by_entry_path"] = {
+                direction: {
+                    path_name: {**asdict(r), "shap": s}
+                    for path_name, (r, s) in paths.items()
+                }
+                for direction, paths in by_entry_path.items()
+            }
         with open(args.output, "w") as f:
             json.dump(report, f, indent=2, default=float)
         print(f"\nFull JSON report written to {args.output}")

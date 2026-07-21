@@ -21,3 +21,4 @@ scikit-learn
 snap
 scipy
 optuna
+shap  #For  SHapley Additive exPlanations. It is a popular Python library used for Machine Learning Explainability (XAI)

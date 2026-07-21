@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """
 ats_optuna_optimizer.py
-Bayesian threshold search
 
-Searches all parameters jointly (not just pairs), letting Optuna decide which to include via a "none/≥/≤" choice per parameter
-Uses a chronological train/test split — optimizes only on the training window, then evaluates once on held-out data. Only the test numbers are trustworthy
-Optional --cv-folds to cross-validate the objective within training data
-On your data it correctly caught real overfitting: the long-side filter looked great in training ($11.34/trade) but collapsed to -$2.55/trade out-of-sample — exactly the failure mode this design exists to catch
 Bayesian (Optuna/TPE) threshold optimization for AtsFastReversal /
 AtsSlowReversal entry-filter parameters.
 
@@ -32,12 +27,20 @@ How overfitting is controlled (read this before trusting the output):
      expectancy across K folds of the training data, which penalizes filters
      that only work on a lucky subset of the training window.
 
+NEW: Entry-path stratification. If your strategy enters via
+`(PatternEntryScore >= Min Or CVDEntryScore >= Min)`, pass
+--min-pattern-score and --min-cvd-score to additionally search each
+direction's pattern_only / cvd_only / both subsets independently -- a
+parameter that matters for Pattern-triggered trades may not matter (or may
+even point the other way) for CVD-triggered ones.
+
 Usage:
     python ats_optuna_optimizer.py trades.csv
     python ats_optuna_optimizer.py trades.csv --n-trials 2000 --min-n 30
     python ats_optuna_optimizer.py trades.csv --test-fraction 0.3 --cv-folds 5
     python ats_optuna_optimizer.py trades.csv --params ind_FullDeltaATRs,ind_FullAngle,ind_ATRsFromHma
     python ats_optuna_optimizer.py trades.csv --output optuna_report.json
+    python ats_optuna_optimizer.py trades.csv --min-pattern-score 3 --min-cvd-score 4
 
 Requires: pandas, numpy, optuna
 """
@@ -64,7 +67,8 @@ NON_PARAM_COLUMNS = {
     "ExitTime", "ExitName", "ExitPrice", "Shares", "Profit/Loss", "BarNumber",
     "SignalBar", "R/T", "ind_BarDate", "ind_BarTime", "ind_BarNumber",
     "ind_Tick", "ind_SignalSent", "ind_Close", "ind_R/T", "ind_computertime",
-    "ProfitHit",
+    "ProfitHit", "ind_Interval","ind_Tick","ind_BarDate","ind_BarTime","ind_BarNumber"
+
 }
 BOOLEAN_FLAG_PREFIX = "ind_C"
 MIN_N_DEFAULT = 30
@@ -85,10 +89,12 @@ class FilterClause:
 class OptimizationResult:
     direction_label: str          # "long" / "short"
     clauses: list                  # list[FilterClause]
-    train_n: int
+    total_train_n: int             # full training window size (before any filter)
+    total_test_n: int              # full held-out test window size (before any filter)
+    train_n: int                   # trades matching the found filter, within training window
     train_expectancy: float
     train_hit_rate: float
-    test_n: int
+    test_n: int                    # trades matching the found filter, within test window
     test_expectancy: float
     test_hit_rate: float
     test_total_pl: float
@@ -112,6 +118,69 @@ def load_trades(csv_path: str) -> pd.DataFrame:
                        "proxy for the train/test split. If your CSV isn't already in "
                        "chronological order, the train/test split below is not meaningful.")
     return df
+
+
+# --------------------------------------------------------------------------
+# Entry-path stratification (see ats_feature_importance.py for the same
+# pattern/rationale): if your strategy fires on
+# (PatternEntryScore >= Min Or CVDEntryScore >= Min), split each direction
+# into pattern_only / cvd_only / both subsets and run the same optimizer on
+# each independently.
+# --------------------------------------------------------------------------
+PATTERN_SCORE_COL_CANDIDATES = ["ind_PatternEntryScore", "ind_SpeedEntryScore"]
+CVD_SCORE_COL_CANDIDATES = ["ind_CVDEntryScore"]
+
+
+def autodetect_column(df: pd.DataFrame, candidates: list, override: Optional[str] = None) -> Optional[str]:
+    if override:
+        return override if override in df.columns else None
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
+
+
+def compute_entry_path(df: pd.DataFrame, pattern_col: str, cvd_col: str,
+                        min_pattern: float, min_cvd: float) -> pd.Series:
+    pattern_fired = df[pattern_col] >= min_pattern
+    cvd_fired = df[cvd_col] >= min_cvd
+    path = np.select(
+        [pattern_fired & cvd_fired, pattern_fired & ~cvd_fired, (~pattern_fired) & cvd_fired],
+        ["both", "pattern_only", "cvd_only"],
+        default="neither",
+    )
+    return pd.Series(path, index=df.index)
+
+
+def resolve_entry_path_config(df: pd.DataFrame, args) -> Optional[dict]:
+    if args.min_pattern_score is None or args.min_cvd_score is None:
+        return None
+    pattern_col = autodetect_column(df, PATTERN_SCORE_COL_CANDIDATES, args.pattern_score_col)
+    cvd_col = autodetect_column(df, CVD_SCORE_COL_CANDIDATES, args.cvd_score_col)
+    if pattern_col is None or cvd_col is None:
+        missing = []
+        if pattern_col is None:
+            missing.append(f"pattern score column (tried {args.pattern_score_col or PATTERN_SCORE_COL_CANDIDATES})")
+        if cvd_col is None:
+            missing.append(f"cvd score column (tried {args.cvd_score_col or CVD_SCORE_COL_CANDIDATES})")
+        print(f"WARNING: --min-pattern-score/--min-cvd-score given but couldn't find: {'; '.join(missing)}. "
+              f"Skipping entry-path stratification.")
+        return None
+    return {"pattern_col": pattern_col, "cvd_col": cvd_col,
+            "min_pattern": args.min_pattern_score, "min_cvd": args.min_cvd_score}
+
+
+def add_entry_path_args(ap):
+    ap.add_argument("--min-pattern-score", type=float, default=None,
+                    help="Enables entry-path stratification (requires --min-cvd-score too).")
+    ap.add_argument("--min-cvd-score", type=float, default=None,
+                    help="Companion to --min-pattern-score.")
+    ap.add_argument("--pattern-score-col", default=None,
+                    help=f"Column holding PatternEntryScore. Auto-detected from "
+                         f"{PATTERN_SCORE_COL_CANDIDATES} if not given.")
+    ap.add_argument("--cvd-score-col", default=None,
+                    help=f"Column holding CVDEntryScore. Auto-detected from "
+                         f"{CVD_SCORE_COL_CANDIDATES} if not given.")
 
 
 def get_param_columns(df: pd.DataFrame, explicit: Optional[list] = None) -> list:
@@ -234,7 +303,8 @@ def optimize_direction(df: pd.DataFrame, label: str, params: list, min_n: int,
 
     if len(train_df) < min_n:
         return OptimizationResult(
-            direction_label=label, clauses=[], train_n=len(train_df),
+            direction_label=label, clauses=[], total_train_n=len(train_df), total_test_n=len(test_df),
+            train_n=len(train_df),
             train_expectancy=baseline_train_exp, train_hit_rate=float(train_df["ProfitHit"].mean()) if len(train_df) else float("nan"),
             test_n=len(test_df), test_expectancy=baseline_test_exp,
             test_hit_rate=float(test_df["ProfitHit"].mean()) if len(test_df) else float("nan"),
@@ -273,7 +343,8 @@ def optimize_direction(df: pd.DataFrame, label: str, params: list, min_n: int,
                 warning = f"Held-out test subset only has {test_n} trades (< --min-n {min_n}) -- low confidence."
 
     return OptimizationResult(
-        direction_label=label, clauses=clauses, train_n=train_n, train_expectancy=train_exp,
+        direction_label=label, clauses=clauses, total_train_n=len(train_df), total_test_n=len(test_df),
+        train_n=train_n, train_expectancy=train_exp,
         train_hit_rate=train_hit, test_n=test_n, test_expectancy=test_exp, test_hit_rate=test_hit,
         test_total_pl=test_pl, baseline_train_expectancy=baseline_train_exp,
         baseline_test_expectancy=baseline_test_exp, n_trials_run=n_trials, warning=warning,
@@ -284,9 +355,9 @@ def print_result(r: OptimizationResult, min_n: int):
     print(f"\n{'='*72}")
     print(f" {r.direction_label.upper()}")
     print(f"{'='*72}")
-    print(f"Training window: n={r.train_n} baseline_expectancy=${r.baseline_train_expectancy:.2f}")
-    print(f"Test window (held-out, never seen by optimizer): "
-          f"n_total_available baseline_expectancy=${r.baseline_test_expectancy:.2f}")
+    print(f"Training window: {r.total_train_n} trades total, baseline_expectancy=${r.baseline_train_expectancy:.2f}")
+    print(f"Test window (held-out, never seen by optimizer): {r.total_test_n} trades total, "
+          f"baseline_expectancy=${r.baseline_test_expectancy:.2f}")
 
     if r.n_trials_run == 0:
         print(f"\n  SKIPPED: {r.warning}")
@@ -301,10 +372,11 @@ def print_result(r: OptimizationResult, min_n: int):
     for c in r.clauses:
         print(f"    {c}")
 
-    print(f"\n  TRAIN performance (what the optimizer saw / optimized for):")
+    print(f"\n  TRAIN performance (subset matching the filter, within the {r.total_train_n}-trade training window):")
     print(f"    n={r.train_n}  hit_rate={r.train_hit_rate:.1%}  expectancy=${r.train_expectancy:.2f}/trade")
 
-    print(f"\n  >>> TEST performance (held-out, the only trustworthy number) <<<")
+    print(f"\n  >>> TEST performance (subset matching the filter, within the {r.total_test_n}-trade "
+          f"held-out window -- the only trustworthy number) <<<")
     if r.test_n == 0:
         print(f"    n=0 -- filter never fired in the test window. Cannot confirm.")
     else:
@@ -338,6 +410,7 @@ def main():
                          "(default: auto-detect all numeric ind_* columns)")
     ap.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     ap.add_argument("--output", default=None, help="Optional path to write the full JSON report")
+    add_entry_path_args(ap)
     args = ap.parse_args()
 
     df = load_trades(args.csv_path)
@@ -353,13 +426,50 @@ def main():
     print(f"  Train/test split: {1-args.test_fraction:.0%}/{args.test_fraction:.0%} chronological, "
           f"{args.n_trials} trials, cv_folds={args.cv_folds}")
 
-    long_result = optimize_direction(long_df, "long", params, args.min_n, args.n_trials,
-                                      args.test_fraction, args.cv_folds, args.seed)
-    short_result = optimize_direction(short_df, "short", params, args.min_n, args.n_trials,
-                                       args.test_fraction, args.cv_folds, args.seed + 1)
+    path_cfg = resolve_entry_path_config(df, args)
+    if path_cfg:
+        print(f"  Entry-path stratification ON: pattern_col={path_cfg['pattern_col']} "
+              f"(>= {path_cfg['min_pattern']}), cvd_col={path_cfg['cvd_col']} (>= {path_cfg['min_cvd']})")
 
-    print_result(long_result, args.min_n)
-    print_result(short_result, args.min_n)
+    def run_one(sub_df: pd.DataFrame, label: str, seed_offset: int, use_params: list):
+        r = optimize_direction(sub_df, label, use_params, args.min_n, args.n_trials,
+                                args.test_fraction, args.cv_folds, args.seed + seed_offset)
+        print_result(r, args.min_n)
+        return r
+
+    long_result = run_one(long_df, "long", 0, params)
+    short_result = run_one(short_df, "short", 1, params)
+
+    by_entry_path = {}
+    if path_cfg:
+        params_excl_pattern = [p for p in params if p != path_cfg["pattern_col"]]
+        params_excl_cvd = [p for p in params if p != path_cfg["cvd_col"]]
+        params_by_path = {
+            "pattern_only": params_excl_pattern,
+            "cvd_only": params_excl_cvd,
+            "both": params,
+            "neither": params,
+        }
+
+        print(f"\n{'#'*72}")
+        print(" ENTRY-PATH BREAKDOWN")
+        print(f"{'#'*72}")
+        seed_offset = 2
+        for direction_label, direction_df in [("long", long_df), ("short", short_df)]:
+            path_series = compute_entry_path(direction_df, path_cfg["pattern_col"], path_cfg["cvd_col"],
+                                               path_cfg["min_pattern"], path_cfg["min_cvd"])
+            by_entry_path[direction_label] = {}
+            for path_name in ["pattern_only", "cvd_only", "both", "neither"]:
+                sub = direction_df[path_series == path_name].reset_index(drop=True)
+                if path_name == "neither" and len(sub) == 0:
+                    continue
+                sub_label = f"{direction_label} ({path_name})"
+                if len(sub) == 0:
+                    print(f"\n{'='*72}\n {sub_label.upper()}\n{'='*72}\n  n=0 -- no trades in this bucket.")
+                    continue
+                r = run_one(sub, sub_label, seed_offset, params_by_path[path_name])
+                by_entry_path[direction_label][path_name] = r
+                seed_offset += 1
 
     print(f"\n{'='*72}")
     print(" SUMMARY")
@@ -368,6 +478,10 @@ def main():
     print("If a filter's test expectancy is close to or below its train expectancy drop-off,")
     print("or the test warning flags low confidence / zero matches, treat it as unconfirmed")
     print("and gather more data before changing the live strategy's parameters.")
+    if path_cfg:
+        print("If the best filter/threshold differs between pattern_only and cvd_only for the")
+        print("same direction, that's a real reason to tune those two entry paths separately")
+        print("rather than share one parameter set across both.")
 
     if args.output:
         report = {
@@ -376,6 +490,15 @@ def main():
             "long": {**asdict(long_result), "clauses": [str(c) for c in long_result.clauses]},
             "short": {**asdict(short_result), "clauses": [str(c) for c in short_result.clauses]},
         }
+        if path_cfg:
+            report["entry_path_config"] = path_cfg
+            report["by_entry_path"] = {
+                direction: {
+                    path_name: {**asdict(r), "clauses": [str(c) for c in r.clauses]}
+                    for path_name, r in paths.items()
+                }
+                for direction, paths in by_entry_path.items()
+            }
         with open(args.output, "w") as f:
             json.dump(report, f, indent=2, default=float)
         print(f"\nFull JSON report written to {args.output}")

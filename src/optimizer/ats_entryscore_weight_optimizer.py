@@ -116,13 +116,13 @@ def load_trades(csv_path: str) -> pd.DataFrame:
 
 def parse_components_arg(spec: str) -> list:
     """Parses '--components' override string like:
-    'Label1:col1:flag,Label2:col2:gt0'
+    'Label1:col1:flag,Label2:col2:gt0,Label3:col3:lt0'
     """
     comps = []
     for part in spec.split(","):
         label, col, cmp = part.split(":")
-        if cmp not in ("flag", "gt0"):
-            raise ValueError(f"Unknown comparison '{cmp}' for component '{label}' (use 'flag' or 'gt0')")
+        if cmp not in ("flag", "gt0", "lt0"):
+            raise ValueError(f"Unknown comparison '{cmp}' for component '{label}' (use 'flag', 'gt0', or 'lt0')")
         comps.append((label.strip(), col.strip(), cmp))
     return comps
 
@@ -136,6 +136,8 @@ def build_component_matrix(df: pd.DataFrame, components: list) -> np.ndarray:
             cols.append((df[col].fillna(0) != 0).astype(int).to_numpy())
         elif cmp == "gt0":
             cols.append((df[col].fillna(0) > 0).astype(int).to_numpy())
+        elif cmp == "lt0":
+            cols.append((df[col].fillna(0) < 0).astype(int).to_numpy())
     return np.column_stack(cols)  # shape (n_trades, n_components)
 
 
@@ -349,6 +351,75 @@ def print_result(r: WeightResult, min_n: int):
         print(f"\n  WARNING: {r.warning}")
 
 
+# --------------------------------------------------------------------------
+# Entry-path stratification (same pattern as ats_feature_importance.py /
+# ats_optuna_optimizer.py): if your strategy fires on
+# (PatternEntryScore >= Min Or CVDEntryScore >= Min), split each direction
+# into pattern_only / cvd_only / both subsets and run the same weight search
+# on each independently.
+# --------------------------------------------------------------------------
+PATTERN_SCORE_COL_CANDIDATES = ["ind_PatternEntryScore", "ind_SpeedEntryScore"]
+CVD_SCORE_COL_CANDIDATES = ["ind_CVDEntryScore"]
+
+
+def autodetect_column(df: pd.DataFrame, candidates: list, override: Optional[str] = None) -> Optional[str]:
+    if override:
+        return override if override in df.columns else None
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
+
+
+def compute_entry_path(df: pd.DataFrame, pattern_col: str, cvd_col: str,
+                        min_pattern: float, min_cvd: float) -> pd.Series:
+    pattern_fired = df[pattern_col] >= min_pattern
+    cvd_fired = df[cvd_col] >= min_cvd
+    path = np.select(
+        [pattern_fired & cvd_fired, pattern_fired & ~cvd_fired, (~pattern_fired) & cvd_fired],
+        ["both", "pattern_only", "cvd_only"],
+        default="neither",
+    )
+    return pd.Series(path, index=df.index)
+
+
+def resolve_entry_path_config(df: pd.DataFrame, args) -> Optional[dict]:
+    if args.min_pattern_score is None or args.min_cvd_score is None:
+        return None
+    pattern_col = autodetect_column(df, PATTERN_SCORE_COL_CANDIDATES, args.pattern_score_col)
+    cvd_col = autodetect_column(df, CVD_SCORE_COL_CANDIDATES, args.cvd_score_col)
+    if pattern_col is None or cvd_col is None:
+        missing = []
+        if pattern_col is None:
+            missing.append(f"pattern score column (tried {args.pattern_score_col or PATTERN_SCORE_COL_CANDIDATES})")
+        if cvd_col is None:
+            missing.append(f"cvd score column (tried {args.cvd_score_col or CVD_SCORE_COL_CANDIDATES})")
+        print(f"WARNING: --min-pattern-score/--min-cvd-score given but couldn't find: {'; '.join(missing)}. "
+              f"Skipping entry-path stratification.")
+        return None
+    return {"pattern_col": pattern_col, "cvd_col": cvd_col,
+            "min_pattern": args.min_pattern_score, "min_cvd": args.min_cvd_score}
+
+
+def add_entry_path_args(ap):
+    ap.add_argument("--min-pattern-score", type=float, default=None,
+                    help="Enables entry-path stratification (requires --min-cvd-score too).")
+    ap.add_argument("--min-cvd-score", type=float, default=None,
+                    help="Companion to --min-pattern-score.")
+    ap.add_argument("--pattern-score-col", default=None,
+                    help=f"Column holding PatternEntryScore. Auto-detected from "
+                         f"{PATTERN_SCORE_COL_CANDIDATES} if not given.")
+    ap.add_argument("--cvd-score-col", default=None,
+                    help=f"Column holding CVDEntryScore. Auto-detected from "
+                         f"{CVD_SCORE_COL_CANDIDATES} if not given.")
+
+
+def print_components(components: list, indent: str = "    "):
+    sym = {"flag": "!=0", "gt0": ">0", "lt0": "<0"}
+    for label, col, cmp in components:
+        print(f"{indent}{label:<32} <- {col} ({sym[cmp]})")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("csv_path", help="Path to the merged trade CSV")
@@ -370,36 +441,102 @@ def main():
                          "a degenerate filter indistinguishable from no filter, regardless of the "
                          "weights found. Set to 0 to disable and restore the unconstrained search.")
     ap.add_argument("--components", default=None,
-                    help="Override the default component list. Format: "
-                         "'Label1:col1:flag,Label2:col2:gt0,...' where comparison is "
-                         "'flag' (column already 0/1) or 'gt0' (column > 0).")
+                    help="Override the default component list, applied to BOTH directions. Format: "
+                         "'Label1:col1:flag,Label2:col2:gt0,Label3:col3:lt0,...' where comparison is "
+                         "'flag' (column already 0/1), 'gt0' (column > 0), or 'lt0' (column < 0).")
+    ap.add_argument("--components-long", default=None,
+                    help="Override the component list for LONG only (same format as --components). "
+                         "Use this when a component needs a different sign per direction, e.g. "
+                         "'CVDDelta confirms:ind_CVDDelta:gt0' for long vs. "
+                         "'CVDDelta confirms:ind_CVDDelta:lt0' for short. Falls back to --components "
+                         "or the default list if not given.")
+    ap.add_argument("--components-short", default=None,
+                    help="Override the component list for SHORT only (same format as --components-long).")
     ap.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     ap.add_argument("--output", default=None, help="Optional path to write the full JSON report")
+    add_entry_path_args(ap)
     args = ap.parse_args()
 
     df = load_trades(args.csv_path)
-    components = parse_components_arg(args.components) if args.components else DEFAULT_COMPONENTS
+    base_components = parse_components_arg(args.components) if args.components else DEFAULT_COMPONENTS
+    components_long = parse_components_arg(args.components_long) if args.components_long else base_components
+    components_short = parse_components_arg(args.components_short) if args.components_short else base_components
 
     long_df = df[df["ind_SignalSent"] == 1].reset_index(drop=True)
     short_df = df[df["ind_SignalSent"] == -1].reset_index(drop=True)
 
     print(f"Loaded {len(df)} trades from {args.csv_path}")
     print(f"  Long: {len(long_df)}   Short: {len(short_df)}")
-    print(f"  EntryScore components ({len(components)}):")
-    for label, col, cmp in components:
-        print(f"    {label:<32} <- {col} ({'!=0' if cmp=='flag' else '>0'})")
+    print(f"  LONG EntryScore components ({len(components_long)}):")
+    print_components(components_long)
+    print(f"  SHORT EntryScore components ({len(components_short)}):")
+    print_components(components_short)
     print(f"  max_weight={args.max_weight}, n_trials={args.n_trials}, "
           f"test_fraction={args.test_fraction}, cv_folds={args.cv_folds}")
 
-    long_result = optimize_direction(long_df, "long", components, args.min_n, args.n_trials,
-                                      args.test_fraction, args.cv_folds, args.max_weight, args.seed,
-                                      args.min_threshold_frac)
-    short_result = optimize_direction(short_df, "short", components, args.min_n, args.n_trials,
-                                       args.test_fraction, args.cv_folds, args.max_weight, args.seed + 1,
-                                       args.min_threshold_frac)
+    path_cfg = resolve_entry_path_config(df, args)
+    if path_cfg:
+        print(f"  Entry-path stratification ON: pattern_col={path_cfg['pattern_col']} "
+              f"(>= {path_cfg['min_pattern']}), cvd_col={path_cfg['cvd_col']} (>= {path_cfg['min_cvd']})")
 
-    print_result(long_result, args.min_n)
-    print_result(short_result, args.min_n)
+    def run_one(sub_df: pd.DataFrame, label: str, seed_offset: int, use_components: list):
+        r = optimize_direction(sub_df, label, use_components, args.min_n, args.n_trials,
+                                args.test_fraction, args.cv_folds, args.max_weight, args.seed + seed_offset,
+                                args.min_threshold_frac)
+        print_result(r, args.min_n)
+        return r
+
+    long_result = run_one(long_df, "long", 0, components_long)
+    short_result = run_one(short_df, "short", 1, components_short)
+
+    by_entry_path = {}
+    if path_cfg:
+        # Exclude the classification column itself from a bucket's own
+        # component list (tautological within that bucket) -- same rule as
+        # the other two scripts. If the classification column isn't part of
+        # a direction's component list at all (common here, since these are
+        # usually raw threshold flags, not the group score itself), this is
+        # a no-op.
+        def strip_col(components, col):
+            return [c for c in components if c[1] != col]
+
+        components_by_direction_and_path = {
+            "long": {
+                "pattern_only": strip_col(components_long, path_cfg["pattern_col"]),
+                "cvd_only": strip_col(components_long, path_cfg["cvd_col"]),
+                "both": components_long,
+                "neither": components_long,
+            },
+            "short": {
+                "pattern_only": strip_col(components_short, path_cfg["pattern_col"]),
+                "cvd_only": strip_col(components_short, path_cfg["cvd_col"]),
+                "both": components_short,
+                "neither": components_short,
+            },
+        }
+
+        print(f"\n{'#'*72}")
+        print(" ENTRY-PATH BREAKDOWN")
+        print(f"{'#'*72}")
+        seed_offset = 2
+        for direction_label, direction_df in [("long", long_df), ("short", short_df)]:
+            path_series = compute_entry_path(direction_df, path_cfg["pattern_col"], path_cfg["cvd_col"],
+                                               path_cfg["min_pattern"], path_cfg["min_cvd"])
+            by_entry_path[direction_label] = {}
+            for path_name in ["pattern_only", "cvd_only", "both", "neither"]:
+                sub = direction_df[path_series == path_name].reset_index(drop=True)
+                if path_name == "neither" and len(sub) == 0:
+                    continue
+                sub_label = f"{direction_label} ({path_name})"
+                use_components = components_by_direction_and_path[direction_label][path_name]
+                if len(sub) == 0 or not use_components:
+                    print(f"\n{'='*72}\n {sub_label.upper()}\n{'='*72}")
+                    print(f"  n={len(sub)}, components={len(use_components)} -- skipping "
+                          f"(no trades and/or no components left to search).")
+                    continue
+                r = run_one(sub, sub_label, seed_offset, use_components)
+                by_entry_path[direction_label][path_name] = r
+                seed_offset += 1
 
     print(f"\n{'='*72}")
     print(" SUMMARY")
@@ -409,6 +546,10 @@ def main():
     print("means the reweighted formula beat the current equal-weight formula on data neither")
     print("saw during the search. A filter with n=0 or LOW CONFIDENCE in the test window is")
     print("not yet confirmed -- gather more trades before changing the live weights.")
+    if path_cfg:
+        print("If the best weights differ between pattern_only and cvd_only for the same")
+        print("direction, that's a real reason to weight those two entry paths' components")
+        print("differently rather than share one formula across both.")
 
     if args.output:
         report = {
@@ -417,6 +558,12 @@ def main():
             "min_threshold_frac": args.min_threshold_frac,
             "long": asdict(long_result), "short": asdict(short_result),
         }
+        if path_cfg:
+            report["entry_path_config"] = path_cfg
+            report["by_entry_path"] = {
+                direction: {path_name: asdict(r) for path_name, r in paths.items()}
+                for direction, paths in by_entry_path.items()
+            }
         with open(args.output, "w") as f:
             json.dump(report, f, indent=2, default=float)
         print(f"\nFull JSON report written to {args.output}")

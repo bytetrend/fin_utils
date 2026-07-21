@@ -170,6 +170,151 @@ Optuna-optimized weights (2000 trials searched):
    filter can match the exact same 113-of-114 trades as baseline for
    structural reasons, not because reweighting was tested and found neutral.
 
+## JSON Output File Parameters
+
+When using the `--output` flag, the script produces a JSON file with the following
+structure and parameters. Understanding these is critical to applying the optimization
+results in your trading system.
+
+### Top-Level Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `csv_path` | string | Path to the input trades CSV file analyzed |
+| `min_n` | integer | Minimum number of trades required for any test subset to be considered valid |
+| `n_trials` | integer | Number of Optuna optimization trials performed |
+| `test_fraction` | float | Fraction of trades held out as the test set (e.g., 0.3 = 30%) |
+| `cv_folds` | integer | Number of cross-validation folds used (1 = no cross-validation) |
+| `max_weight` | integer | Maximum weight value searched for any component (0 to max_weight) |
+| `min_threshold_frac` | float | Minimum threshold as a fraction of max_possible_score (prevents degenerate filters) |
+
+### Long/Short Direction Results
+
+The JSON contains both `"long"` and `"short"` objects with identical parameter structures
+but separate optimization results. Each contains:
+
+#### Direction-Level Parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `direction_label` | string | "long" or "short" — the trade direction optimized |
+| `total_train_n` | integer | Total number of trades available for training in this direction before filtering |
+| `total_test_n` | integer | Total number of trades in the test set before filtering |
+
+#### Weights Dictionary
+
+| Parameter | Type | Example | Description |
+|---|---|---|---|
+| `weights` | object | `{"Fast reversal (C13)": 1, "HMAGapCV consistent (C9)": 1}` | The optimized weight for each component. Weight 0 means the component was deemphasized or eliminated by the search as unhelpful. Higher weights (e.g., 3) mean the component is more important. Only components with weight > 0 fire the signal. |
+
+#### Performance Metrics — Training Data
+
+These represent how the optimized filter performed on the training window
+(which Optuna was allowed to overfit to). **Do not trust these numbers for
+live trading decisions—use TEST metrics instead.**
+
+| Parameter | Type | Example | Description |
+|---|---|---|---|
+| `train_n` | integer | 94 | Number of training trades that passed the optimized filter (EntryScore >= threshold) |
+| `train_expectancy` | float | 1.859893617021277 | Average profit/loss per trade in the training set matching the filter ($/trade) |
+| `train_hit_rate` | float | 0.2765957446808511 | Fraction of trades in the training set that were profitable (0.0 to 1.0 or 0-100%) |
+
+#### Performance Metrics — Test Data (Held-Out, Primary Metric)
+
+**These are the most important numbers.** The test set was never seen by the
+optimizer and represents expected live performance.
+
+| Parameter | Type | Example | Description |
+|---|---|---|---|
+| `test_n` | integer | 41 | Number of test trades that passed the optimized filter. If this is very small (< min_n), the result has low confidence. Compare to total_test_n to detect degenerate filters. |
+| `test_expectancy` | float | -1.175853658536585 | Average profit/loss per trade in the test set ($/trade). **This is the key performance metric for live deployment.** Negative values mean the filter loses money on average per trade. |
+| `test_hit_rate` | float | 0.36585365853658536 | Fraction of test trades that were profitable (0.0 to 1.0). A high hit rate with negative expectancy means winners are smaller than losers; conversely, a lower hit rate with positive expectancy means the winners are larger on average. |
+| `test_total_pl` | float | -48.20999999999999 | Total profit/loss across all test trades (not per-trade; sum of all P&L). Useful for sanity-checking against test_expectancy × test_n. |
+
+#### Baseline Metrics (for Comparison)
+
+The baseline is the **current formula with all weights = 1**, optimized to its
+own best threshold on the training data. This is your **control group** for
+assessing whether the new weights are actually better.
+
+| Parameter | Type | Example | Description |
+|---|---|---|---|
+| `baseline_train_expectancy` | float | 1.6571578947368428 | Training-set expectancy of the equal-weight (all 1s) formula with its own best threshold. Shows what the current live formula would have produced on training data. |
+| `baseline_test_expectancy` | float | 0.8235714285714286 | Test-set expectancy of the equal-weight formula with its best threshold on the same held-out data. **Compare this to test_expectancy to judge improvement: if test_expectancy > baseline_test_expectancy, the new weights beat the current formula.** |
+| `equal_weight_best_threshold` | integer | 2 | The threshold (EntryScore cutoff) that was optimal for the equal-weight baseline on training data. Combined with baseline_train_expectancy and baseline_test_expectancy, this tells you what your current live formula would achieve. |
+
+#### Optimization Metadata
+
+| Parameter | Type | Example | Description |
+|---|---|---|---|
+| `threshold` | integer | 1 | The optimized EntryScore threshold (cutoff). Only trades with EntryScore >= threshold enter. Combined with the weights dict, this defines the new filter to deploy. |
+| `max_possible_score` | integer | 2 | Maximum possible score achievable with the optimized weights (sum of all weights). Used to validate whether the threshold is degenerate (see Pitfalls). If threshold is very low relative to max_possible_score, beware. |
+| `n_trials_run` | integer | 2000 | Number of Optuna trials actually performed for this direction. Confirms the search scope. |
+| `warning` | string or null | null | If not null, a warning message (e.g., "Training set too small"). Check this before trusting results. |
+
+### Example Interpretation
+
+Given this output:
+```json
+{
+  "threshold": 1,
+  "max_possible_score": 2,
+  "train_n": 94,
+  "train_expectancy": 1.86,
+  "test_n": 41,
+  "test_expectancy": -1.18,
+  "test_total_pl": -48.21,
+  "baseline_test_expectancy": 0.82,
+  "equal_weight_best_threshold": 2,
+  "weights": {
+    "Fast reversal (C13)": 1,
+    "HMAGapCV consistent (C9)": 1
+  }
+}
+```
+
+**What this means:**
+- The optimizer found that just 2 out of 7 components matter: Fast reversal and HMAGapCV
+- With these weights, a threshold of ≥1 (meaning either component firing) is optimal
+- **On test data (the honest metric):** This filter loses $1.18/trade on average — **worse than the current formula's +$0.82/trade**
+- The result is **not recommended for live deployment** because test_expectancy is negative
+
+**Red flag:** The test_n (41) is close to total_test_n, and max_possible_score is only 2
+while threshold is 1, which means the filter triggers whenever even ONE component fires.
+This is a degenerate filter (see Pitfalls section).
+
+## Recommended Workflow
+
+1. Run `ats_feature_importance.py` first to see which of these 7 components
+   (if any) show real signal at all for each direction. This informs whether
+   the optimization will have enough raw material to work with.
+   
+2. Run this script with a conservative `--max-weight` (2-3) and the default
+   `--min-threshold-frac` (0.3) given your current trade count. Small datasets
+   (< 200 total trades) should use `--max-weight 2` to reduce overfitting risk.
+
+3. Review the JSON output carefully. Check:
+   - Are test_expectancy results positive?
+   - Does test_expectancy beat baseline_test_expectancy?
+   - Is test_n sufficiently large (ideally > 2× min_n)?
+   - Is the filter selective (test_n << total_test_n)?
+   - Does train_expectancy drop more than 2× relative to test_expectancy?
+   
+4. Before trusting any result, check `train_n` against `total_train_n` for
+   that direction — if the "optimized" filter matches nearly every training
+   trade, treat it as the degenerate pattern (see Pitfalls) rather than a
+   real finding, even if `--min-threshold-frac` is enabled.
+
+5. Only deploy weights if TEST performance beats the equal-weight baseline
+   **and** the test window meets your `--min-n` AND none of the red flags
+   (degenerate filter, overfitting, negative expectancy) apply.
+
+6. Forward-test on the next batch of trades before committing the new weights
+   to your live trading formula. Same as you'd validate any other parameter finding.
+   
+7. Re-run monthly or quarterly as you accumulate more data to track whether
+   component importance is stable or shifting with market conditions.
+
 ## Pitfalls to watch
 
 - **Degenerate threshold ("take almost everything"), the most important
@@ -239,17 +384,159 @@ Optuna-optimized weights (2000 trials searched):
   already treats them separately (as it should) — don't average or share a
   single weight set across directions.
 
-## Recommended workflow
+## How to Use Weights and Parameters to Improve Profitability
 
-1. Run `ats_feature_importance.py` first to see which of these 7 components
-   (if any) show real signal at all for each direction.
-2. Run this script with a conservative `--max-weight` (2-3) and the default
-   `--min-threshold-frac` (0.3) given your current trade count.
-3. Before trusting any result, check `train_n` against `total_train_n` for
-   that direction — if the "optimized" filter matches nearly every training
-   trade, treat it as the degenerate pattern (see Pitfalls) rather than a
-   real finding, even if `--min-threshold-frac` is enabled.
-4. Only trust a result where TEST performance beats the equal-weight
-   baseline **and** the test window meets your `--min-n`.
-5. Re-run on the next batch of trades before changing the live formula, the
-   same way you'd forward-test any other parameter finding.
+The optimization output reveals which signal components are valuable and how to combine
+them for better results. Here's the practical workflow:
+
+### 1. Identify High-Conviction Components (Weight > 0)
+
+The optimized weights dictionary shows which components survived the search:
+- **Weight 0 = noise or redundant signal**: The component added no value or conflicted
+  with stronger components. You can deprioritize or ignore it.
+- **Weight 1 = core signal**: The component reliably contributed; keep it active.
+- **Weight 2+ = high conviction**: The search needed this component at higher weight
+  to capture signal other components missed. Prioritize these.
+
+**Action:** Update your live trading engine to enforce the new weights. In the
+`EntryScore` formula, multiply each component by its optimized weight instead of
+the current all-1s weighting.
+
+### 2. Adjust the Threshold (Score Cutoff)
+
+The `threshold` parameter specifies the EntryScore cutoff (≥ condition):
+
+- **threshold=1** with max_possible_score=5: Very loose filter, catches 80%+ of trades.
+  Best for high-conviction strategies or when you want to trade frequently but need
+  reliability via the weights themselves.
+- **threshold=4** with max_possible_score=5: Tight filter, only trades when 4+ components
+  align. Lower trade frequency but potentially higher quality and selectivity.
+
+**Action:** Update your engine's score cutoff. If test_expectancy is positive, use the
+exact threshold from the JSON. If you want to be conservative, you can raise it by 1
+(reducing trades traded but hopefully improving quality).
+
+### 3. Compare Against Baseline to Judge Real Improvement
+
+The baseline metrics reveal whether the new weights actually help:
+
+```
+Improvement = test_expectancy - baseline_test_expectancy
+```
+
+- **Improvement > 0 (e.g., +$0.50/trade)**: The new weights beat your current formula.
+  Confidence is highest if:
+  - test_expectancy > $0.50/trade (positive edge)
+  - test_n is large (≥ min_n, ideally 2× min_n or more)
+  - test_n << total_test_n (not degenerate; filter is selective)
+  
+- **Improvement ≈ 0 or slightly negative**: No clear benefit over the current formula.
+  Before deploying:
+  - Re-run on a fresh batch of trades to confirm (forward-testing)
+  - Check whether the threshold is degenerate (see red flags below)
+  
+- **Improvement << 0 (e.g., -$2.00/trade)**: The optimized weights underperform.
+  Do **not** deploy. The search likely overfit to training data or discovered a
+  component combination that doesn't generalize.
+
+### 4. Red Flags: When NOT to Deploy
+
+Before applying new weights, check for these disqualifying patterns:
+
+**a) Degenerate Filter**
+```
+Rule: if threshold <= max_possible_score * 0.3 AND test_n ≈ total_test_n:
+    -> Filter is too loose; treats like no filter at all
+```
+Example: `threshold=1, max_possible_score=6, test_n=38, total_test_n=40`
+means almost every trade passes (only 2 were filtered out). This isn't a real
+optimization; it's just "take almost every trade." Don't deploy.
+
+**b) Large Train-to-Test Drop**
+```
+Rule: if (train_expectancy - test_expectancy) > 2 * baseline_test_expectancy:
+    -> Sign of severe overfitting
+```
+Example: `train_expectancy=+$5.00, test_expectancy=-$1.00` suggests the search
+fit to noise in the training window. Very unlikely to replicate on future trades.
+
+**c) Low Confidence (Small Test Set)**
+```
+Rule: if test_n < min_n:
+    -> Result is unreliable due to small sample
+```
+Single-digit test trades can flip from one lucky/unlucky trade. Increase --test-fraction
+or gather more data before trusting.
+
+**d) Negative Test Expectancy**
+```
+Rule: if test_expectancy < -$0.25/trade AND improvement < 0:
+    -> The filter loses money
+```
+Unless you have a strong reason to believe it's a one-time anomaly, don't deploy.
+
+### 5. Forward-Test Before Committing
+
+Even a result that beats the baseline on historical data should be forward-tested:
+
+1. Deploy the new weights on **fresh, unseen trades** only (dates after the test window)
+2. Collect at least `min_n` or more forward trades
+3. Calculate actual expectancy on these trades
+4. If forward test confirms (same direction, similar magnitude as test_expectancy),
+   keep the weights; otherwise, revert or re-optimize on the new data
+
+This is the gold standard for validating any parameter change.
+
+### 6. Directional Asymmetry: Long ≠ Short
+
+The JSON always provides separate results for long and short directions. **Never use
+the same weights for both.** Example:
+```json
+"long": { "weights": { "Fast reversal (C13)": 0, "HMAGapCV consistent (C9)": 1 }, ... }
+"short": { "weights": { "Fast reversal (C13)": 1, "HMAGapCV consistent (C9)": 0 }, ... }
+```
+Here, Fast reversal is useless for longs but crucial for shorts (and vice versa).
+Applying the long weights to shorts would destroy performance.
+
+**Action:** Update your trading engine to branch on direction and apply the correct
+weights + threshold for each.
+
+### 7. Monitor and Refresh Regularly
+
+Market conditions change; components that were high-conviction last quarter may decay:
+
+- Run this script **monthly or quarterly** as you accumulate more trade data
+- If new runs show the same weights + better test performance, confidence increases
+- If new runs show different weights or negative test results, the old pattern may be gone
+- If test_n grows but test_expectancy shrinks, the edge is degrading — investigate why
+
+### 8. Incremental Deployment Strategy
+
+If you're risk-averse, deploy in stages:
+
+1. **Stage 1:** Use optimized weights but keep the current threshold (conservative)
+   - Trades more than the new filter but with the new component weighting
+   - Monitors whether the weight changes alone help
+   
+2. **Stage 2:** Apply the new threshold (full deployment)
+   - Restricts trades to the optimized score cutoff
+   - Should hit the test_expectancy if the optimization was sound
+
+3. **Stage 3 (if needed):** Revert quickly
+   - If forward tests show degradation, revert to Stage 1 or the original formula
+   - Re-optimize on the new data to understand what changed
+
+### Example Deployment Checklist
+
+Before updating your live trading engine, verify:
+
+- [ ] `test_expectancy > baseline_test_expectancy`? (Beats current formula)
+- [ ] `test_expectancy > 0`? (Profitable, not just better-than-current)
+- [ ] `test_n >= min_n`? (Sufficient sample, not a fluke)
+- [ ] `test_n` << `total_test_n`? (Filter is selective, not degenerate)
+- [ ] `(train_expectancy - test_expectancy) < 2 * baseline_test_expectancy`? (Not overfit)
+- [ ] `warning == null`? (No script warnings)
+- [ ] Components with weight 0 removed or deprioritized in code? (Cleaner logic)
+- [ ] Separate weights applied for long vs. short? (Direction-aware)
+
+Only when all boxes are checked should you commit the new weights to live trading.

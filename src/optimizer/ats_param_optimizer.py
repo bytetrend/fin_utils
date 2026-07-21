@@ -53,7 +53,7 @@ NON_PARAM_COLUMNS = {
     "ExitTime", "ExitName", "ExitPrice", "Shares", "Profit/Loss", "BarNumber",
     "SignalBar", "R/T", "ind_BarDate", "ind_BarTime", "ind_BarNumber",
     "ind_Tick", "ind_SignalSent", "ind_Close", "ind_R/T", "ind_computertime",
-    "ProfitHit",
+    "ProfitHit", "ind_Interval","ind_Tick","ind_BarDate","ind_BarTime","ind_BarNumber"
 }
 # Boolean condition flags (0/1) -- tested separately as "require condition true"
 BOOLEAN_FLAG_PREFIX = "ind_C"
