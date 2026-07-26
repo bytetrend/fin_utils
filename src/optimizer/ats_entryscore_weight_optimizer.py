@@ -39,13 +39,14 @@ independent >=/<= thresholds on continuous columns. This script instead
 searches a shared integer weight per binary component plus one score cutoff
 -- the actual decision variables in your EntryScore formula.
 
-All CSV column names are centralized in the `Column` enum below rather than
-scattered as string literals, and all the core logic is consolidated into
+All CSV column names are centralized in the shared `Column` enum
+(optimizer_constants.py) rather than scattered as string literals or
+duplicated per script, and all the core logic here is consolidated into
 the `ParameterOptimizer` class.
 
 Component columns default to the current PatternEntryScore/CVDEntryScore
 formula above -- override with --components / --components-long /
---components-short if your column names or formula differ. Note the new
+--components-short if your column names or formula differ. Note the
 "or" comparison type, needed for "C6 Or C10": format a component as
 'Label:col1|col2:or' to OR two flag columns together.
 
@@ -62,9 +63,7 @@ Requires: pandas, numpy, optuna
 import argparse
 import json
 import sys
-import warnings
 from dataclasses import dataclass, asdict
-from enum import Enum
 from typing import Optional
 
 import numpy as np
@@ -77,87 +76,11 @@ except ImportError:
     print("This script requires optuna: pip install optuna --break-system-packages", file=sys.stderr)
     raise
 
+from optimizer_constants import (
+    Column, MIN_N_DEFAULT, PROFIT_HIT_COL, PATTERN_SCORE_COL_CANDIDATES,
+    CVD_SCORE_COL_CANDIDATES, TradeDataLoader, EntryPathAnalyzer,
+)
 
-# ============================================================================
-# Column enum -- every column name from the merged trade CSV, defined once.
-# (str, Enum) so members behave as plain strings everywhere a string is
-# expected (df[Column.PROFIT_LOSS], f"{Column.PROFIT_LOSS.value}", dict keys,
-# JSON, etc.) -- always use `.value` when interpolating into an f-string or
-# writing to JSON/dict keys, to get a clean string rather than an Enum repr.
-# ============================================================================
-class Column(str, Enum):
-    SYMBOL = "Symbol"
-    ENTRY_DATE = "EntryDate"
-    ENTRY_TIME = "EntryTime"
-    ENTRY_NAME = "EntryName"
-    ENTRY_PRICE = "EntryPrice"
-    EXIT_DATE = "ExitDate"
-    EXIT_TIME = "ExitTime"
-    EXIT_NAME = "ExitName"
-    EXIT_PRICE = "ExitPrice"
-    SHARES = "Shares"
-    PROFIT_LOSS = "Profit/Loss"
-    BAR_NUMBER = "BarNumber"
-    SIGNAL_BAR = "SignalBar"
-    R_T = "R/T"
-    IND_BAR_DATE = "ind_BarDate"
-    IND_BAR_TIME = "ind_BarTime"
-    IND_BAR_NUMBER = "ind_BarNumber"
-    IND_TICK = "ind_Tick"
-    IND_INTERVAL = "ind_Interval"
-    IND_SIGNAL_SENT = "ind_SignalSent"
-    IND_CVD_SPEED_PCT = "ind_CVDSpeedPct"
-    IND_CVD_DELTA_PCT = "ind_CVDDeltaPct"
-    IND_CVD_ACEL_PCT = "ind_CVDAcelPct"
-    IND_REV_ATRS_PER_SEC = "ind_RevATRsPerSec"
-    IND_DELTA_ATRS = "ind_DeltaATRs"
-    IND_AVG_ATR = "ind_AvgATR"
-    IND_BAR_ATR = "ind_BarATR"
-    IND_TREND_BAR_COUNT = "ind_TrendBarCount"
-    IND_ANGLE = "ind_Angle"
-    IND_PIP_SPEED = "ind_PipSpeed"
-    IND_PIP_SPEED_NORM = "ind_PipSpeedNorm"
-    IND_PIP_SPEED_ACEL = "ind_PipSpeedAcel"
-    IND_PIP_SPEED_ACEL_NORM = "ind_PipSpeedAcelNorm"
-    IND_ATRS_FROM_HMA = "ind_ATRsFromHma"
-    IND_DELTA_PIPS = "ind_DeltaPips"
-    IND_PATTERN_ENTRY_SCORE = "ind_PatternEntryScore"
-    IND_CVD_ENTRY_SCORE = "ind_CVDEntryScore"
-    IND_PIP_SPEED_TREND_PCT = "ind_PipSpeedTrendPct"
-    IND_HMA_GAP_STD_DEV = "ind_HMAGapStdDev"
-    IND_HMA_GAP_CV = "ind_HMAGapCV"
-    IND_C1 = "ind_C1"
-    IND_C2 = "ind_C2"
-    IND_C3 = "ind_C3"
-    IND_C4 = "ind_C4"
-    IND_C5 = "ind_C5"
-    IND_C6 = "ind_C6"
-    IND_C7 = "ind_C7"
-    IND_C8 = "ind_C8"
-    IND_C9 = "ind_C9"
-    IND_C10 = "ind_C10"
-    IND_C11 = "ind_C11"
-    IND_C12 = "ind_C12"
-    IND_C13 = "ind_C13"
-    IND_C14 = "ind_C14"
-    IND_C15 = "ind_C15"
-    IND_C16 = "ind_C16"
-    IND_CLOSE = "ind_Close"
-    IND_R_T = "ind_R/T"
-    IND_COMPUTER_TIME = "ind_computertime"
-
-    @classmethod
-    def values(cls) -> list:
-        return [c.value for c in cls]
-
-
-# Required columns for this script to function at all.
-REQUIRED_COLUMNS = [Column.PROFIT_LOSS, Column.IND_SIGNAL_SENT]
-
-# Derived, script-internal column (not present in the source CSV).
-PROFIT_HIT_COL = "ProfitHit"
-
-MIN_N_DEFAULT = 30
 
 # Default EntryScore components: (label, column(s), comparison)
 # comparison is one of:
@@ -184,10 +107,6 @@ DEFAULT_COMPONENTS = [
 ]
 
 COMPARISON_SYMBOLS = {"flag": "!=0", "gt0": ">0", "lt0": "<0", "or": "OR"}
-
-# Entry-path stratification candidates (see ParameterOptimizer.resolve_entry_path_config).
-PATTERN_SCORE_COL_CANDIDATES = [Column.IND_PATTERN_ENTRY_SCORE.value]
-CVD_SCORE_COL_CANDIDATES = [Column.IND_CVD_ENTRY_SCORE.value]
 
 
 @dataclass
@@ -237,25 +156,11 @@ class ParameterOptimizer:
     # ------------------------------------------------------------------
     @staticmethod
     def load_trades(csv_path: str) -> pd.DataFrame:
-        df = pd.read_csv(csv_path)
-        df.columns = [c.strip() for c in df.columns]
-        missing = [c.value for c in REQUIRED_COLUMNS if c.value not in df.columns]
-        if missing:
-            raise ValueError(f"CSV is missing required column(s): {missing}")
-        df[PROFIT_HIT_COL] = df[Column.PROFIT_LOSS.value] > 0
-        if Column.ENTRY_DATE.value in df.columns:
-            df[Column.ENTRY_DATE.value] = pd.to_datetime(df[Column.ENTRY_DATE.value])
-            df = df.sort_values(Column.ENTRY_DATE.value).reset_index(drop=True)
-        else:
-            warnings.warn("No EntryDate column -- using row order as the chronological proxy "
-                           "for the train/test split.")
-        return df
+        return TradeDataLoader.load_trades(csv_path, sort_by_entry_date=True)
 
     @staticmethod
     def split_by_direction(df: pd.DataFrame) -> tuple:
-        long_df = df[df[Column.IND_SIGNAL_SENT.value] == 1].reset_index(drop=True)
-        short_df = df[df[Column.IND_SIGNAL_SENT.value] == -1].reset_index(drop=True)
-        return long_df, short_df
+        return TradeDataLoader.split_by_direction(df)
 
     # ------------------------------------------------------------------
     # Component parsing / matrix construction
@@ -484,54 +389,27 @@ class ParameterOptimizer:
         )
 
     # ------------------------------------------------------------------
-    # Entry-path stratification
+    # Entry-path stratification -- delegates to the shared EntryPathAnalyzer
+    # (optimizer_constants.py), used identically by the other three scripts.
     # ------------------------------------------------------------------
     @staticmethod
-    def autodetect_column(df: pd.DataFrame, candidates: list, override: Optional[str] = None) -> Optional[str]:
-        if override:
-            return override if override in df.columns else None
-        for c in candidates:
-            if c in df.columns:
-                return c
-        return None
+    def resolve_entry_path_config(df: pd.DataFrame, pattern_score_col: Optional[str],
+                                   cvd_score_col: Optional[str], min_pattern_score: Optional[float],
+                                   min_cvd_score: Optional[float]) -> Optional[dict]:
+        return EntryPathAnalyzer.resolve_entry_path_config(df, pattern_score_col, cvd_score_col,
+                                                            min_pattern_score, min_cvd_score)
 
     @staticmethod
     def compute_entry_path(df: pd.DataFrame, pattern_col: str, cvd_col: str,
                             min_pattern: float, min_cvd: float) -> pd.Series:
-        pattern_fired = df[pattern_col] >= min_pattern
-        cvd_fired = df[cvd_col] >= min_cvd
-        path = np.select(
-            [pattern_fired & cvd_fired, pattern_fired & ~cvd_fired, (~pattern_fired) & cvd_fired],
-            ["both", "pattern_only", "cvd_only"],
-            default="neither",
-        )
-        return pd.Series(path, index=df.index)
-
-    def resolve_entry_path_config(self, df: pd.DataFrame, pattern_score_col: Optional[str],
-                                   cvd_score_col: Optional[str], min_pattern_score: Optional[float],
-                                   min_cvd_score: Optional[float]) -> Optional[dict]:
-        if min_pattern_score is None or min_cvd_score is None:
-            return None
-        pattern_col = self.autodetect_column(df, PATTERN_SCORE_COL_CANDIDATES, pattern_score_col)
-        cvd_col = self.autodetect_column(df, CVD_SCORE_COL_CANDIDATES, cvd_score_col)
-        if pattern_col is None or cvd_col is None:
-            missing = []
-            if pattern_col is None:
-                missing.append(f"pattern score column (tried {pattern_score_col or PATTERN_SCORE_COL_CANDIDATES})")
-            if cvd_col is None:
-                missing.append(f"cvd score column (tried {cvd_score_col or CVD_SCORE_COL_CANDIDATES})")
-            print(f"WARNING: --min-pattern-score/--min-cvd-score given but couldn't find: {'; '.join(missing)}. "
-                  f"Skipping entry-path stratification.")
-            return None
-        return {"pattern_col": pattern_col, "cvd_col": cvd_col,
-                "min_pattern": min_pattern_score, "min_cvd": min_cvd_score}
+        return EntryPathAnalyzer.compute_entry_path(df, pattern_col, cvd_col, min_pattern, min_cvd)
 
     @staticmethod
     def strip_column(components: list, col: str) -> list:
         """Drops any component that reads from `col` -- used to exclude a
         bucket's own classification column (tautological within that
         bucket), including when `col` appears inside an 'or' component."""
-        return [c for c in components if col not in ParameterOptimizer.component_columns(c)]
+        return EntryPathAnalyzer.strip_column(components, col, ParameterOptimizer.component_columns)
 
     # ------------------------------------------------------------------
     # Result formatting
@@ -584,19 +462,6 @@ class ParameterOptimizer:
 # ============================================================================
 # CLI
 # ============================================================================
-def add_entry_path_args(ap):
-    ap.add_argument("--min-pattern-score", type=float, default=None,
-                    help="Enables entry-path stratification (requires --min-cvd-score too).")
-    ap.add_argument("--min-cvd-score", type=float, default=None,
-                    help="Companion to --min-pattern-score.")
-    ap.add_argument("--pattern-score-col", default=None,
-                    help=f"Column holding PatternEntryScore. Auto-detected from "
-                         f"{PATTERN_SCORE_COL_CANDIDATES} if not given.")
-    ap.add_argument("--cvd-score-col", default=None,
-                    help=f"Column holding CVDEntryScore. Auto-detected from "
-                         f"{CVD_SCORE_COL_CANDIDATES} if not given.")
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("csv_path", help="Path to the merged trade CSV")
@@ -629,7 +494,7 @@ def main():
                     help="Override the component list for SHORT only (same format as --components-long).")
     ap.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     ap.add_argument("--output", default=None, help="Optional path to write the full JSON report")
-    add_entry_path_args(ap)
+    EntryPathAnalyzer.add_cli_args(ap)
     args = ap.parse_args()
 
     opt = ParameterOptimizer(min_n=args.min_n, n_trials=args.n_trials, test_fraction=args.test_fraction,

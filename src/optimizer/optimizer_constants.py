@@ -69,6 +69,7 @@ class Column(str, Enum):
     IND_CVD_ENTRY_SCORE = "ind_CVDEntryScore"
     IND_PIP_SPEED_TREND_PCT = "ind_PipSpeedTrendPct"
     IND_HMA_GAP_STD_DEV = "ind_HMAGapStdDev"
+    IND_HMA_GAP_MEAN = "ind_HMAGapMean"
     IND_HMA_GAP_CV = "ind_HMAGapCV"
     IND_C1 = "ind_C1"
     IND_C2 = "ind_C2"
