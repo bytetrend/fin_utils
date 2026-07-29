@@ -1,5 +1,5 @@
 
-#C:\Invest\repo\fin_utils\.venv\Scripts\python.exe C:\Invest\repo\fin_utils\src\optimizer\merge_trades.py
+C:\Invest\repo\fin_utils\.venv\Scripts\python.exe C:\Invest\repo\fin_utils\src\optimizer\merge_trades.py
 
 C:\Invest\repo\fin_utils\.venv\Scripts\python.exe C:\Invest\repo\fin_utils\src\optimizer\ats_performance_report.py C:\Invest\logs\merged\AtsFastReversal-merged.csv --excel C:\Invest\logs\merged\AtsFastReversal-report.xls
 C:\Invest\repo\fin_utils\.venv\Scripts\python.exe C:\Invest\repo\fin_utils\src\optimizer\ats_performance_report.py C:\Invest\logs\merged\AtsSlowReversal-merged.csv --excel C:\Invest\logs\merged\AtsSlowReversal-report.xls

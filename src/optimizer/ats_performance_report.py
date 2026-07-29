@@ -9,10 +9,18 @@ Usage:
     python ats_performance_report.py <csv_file> [--strategy NAME] [--excel FILE] [--output FILE]
 
 Output:
-    Console report + optional Excel file with three sheets:
-      - Trade Summary: Key metrics and statistics
+    Console report + optional Excel file with sheets:
+      - Trade Summary: Key metrics and statistics (all trades)
       - Daily Performance: Daily P/L and win rates
       - Performance By Symbol: Per-symbol statistics
+      - Performance By Interval: quick overview across tick intervals
+        (only added if Column.IND_INTERVAL is present with more than one
+        distinct value)
+      - Summary (<interval>-tick): one full Trade Summary sheet PER
+        interval value, so each interval's results can be checked with the
+        same depth as the overall summary -- this is what lets you confirm
+        a strategy behaves consistently across different tick intervals
+        rather than only looking at the pooled numbers
     OR optional CSV summary (legacy)
 
 All raw CSV column names live in the shared `Column` enum
@@ -378,8 +386,14 @@ class PerformanceReportGenerator:
     # ------------------------------------------------------------------
     # Excel report
     # ------------------------------------------------------------------
-    def create_excel_report(self, df: pd.DataFrame, strategy_name: str, output_path: str):
-        """Create an Excel workbook with three sheets: Trade Summary, Daily Performance, Performance By Symbol."""
+    def _write_trade_summary_sheet(self, ws, df: pd.DataFrame) -> None:
+        """Writes a full Trade-Summary-style sheet (5 sections: Trade Summary,
+        Trade Count, Win/Loss Detail, Drawdown & Capital, Risk-Adjusted
+        Metrics) into the given worksheet, computed from the given (already
+        filtered) trades DataFrame. Shared by the main "Trade Summary" sheet
+        and by any per-interval summary sheets, so the exact same metrics
+        and formatting are used everywhere rather than duplicated.
+        """
         fmt, pct = self.fmt, self.pct
 
         pl = df[WorkingColumn.PL.value]
@@ -397,12 +411,6 @@ class PerformanceReportGenerator:
         df2[WorkingColumn.DATE.value] = df2[WorkingColumn.ENTRY_DT.value].dt.date
         daily_pl = df2.groupby(WorkingColumn.DATE.value)[WorkingColumn.PL.value].sum()
 
-        # Create workbook
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Trade Summary"
-
-        # -- Sheet 1: Trade Summary --
         row = 1
 
         def add_section(title, start_row):
@@ -490,6 +498,46 @@ class PerformanceReportGenerator:
         ws.column_dimensions['A'].width = 40
         ws.column_dimensions['B'].width = 20
 
+    def interval_stats(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Quick per-interval overview table (Trades, Total P/L, Avg P/L, Win
+        Rate, Profit Factor) -- an at-a-glance companion to the full
+        per-interval Trade Summary sheets, in the same spirit as symbol_stats()."""
+        rows = []
+        for interval, sub in df.groupby(Column.IND_INTERVAL.value):
+            pl = sub[WorkingColumn.PL.value]
+            rows.append({
+                "Interval": interval,
+                "Trades": len(sub),
+                "TotalPL": pl.sum(),
+                "AvgPL": pl.mean(),
+                "WinRate": sub[WorkingColumn.WIN.value].mean(),
+                "ProfitFactor": self.calc_profit_factor(pl),
+            })
+        return pd.DataFrame(rows).set_index("Interval").sort_index()
+
+    def create_excel_report(self, df: pd.DataFrame, strategy_name: str, output_path: str):
+        """Create an Excel workbook with:
+          - Trade Summary: Key metrics and statistics (all trades)
+          - Daily Performance: Daily P/L and win rates
+          - Performance By Symbol: Per-symbol statistics
+          - Performance By Interval: quick overview across tick intervals
+            (only added if Column.IND_INTERVAL is present with more than
+            one distinct value)
+          - Summary (<interval>-tick): one full Trade Summary sheet PER
+            interval value, so each interval's results (win rate, profit
+            factor, drawdown, risk ratios, etc.) can be reviewed with the
+            same depth as the overall summary -- this is what lets you check
+            whether a strategy holds up consistently across different tick
+            intervals rather than just looking at the pooled numbers.
+        """
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Trade Summary"
+
+        # -- Sheet 1: Trade Summary (all trades) --
+        self._write_trade_summary_sheet(ws, df)
+
         # -- Sheet 2: Daily Performance --
         ws_daily = wb.create_sheet("Daily Performance")
         ds = self.daily_stats(df)
@@ -537,6 +585,47 @@ class PerformanceReportGenerator:
             ws_symbol.column_dimensions['E'].width = 12
         else:
             ws_symbol["A1"] = "Only one symbol in dataset"
+
+        # -- Sheets 4+: Performance By Interval (overview) + one full Trade
+        #    Summary sheet per interval value --
+        interval_col = Column.IND_INTERVAL.value
+        if interval_col in df.columns and df[interval_col].nunique() > 1:
+            intervals = sorted(df[interval_col].dropna().unique())
+
+            ws_interval = wb.create_sheet("Performance By Interval")
+            iv = self.interval_stats(df)
+            iv_reset = iv.reset_index()
+
+            headers = ["Interval", "Trades", "Total P/L", "Avg P/L", "Win Rate", "Profit Factor"]
+            for col_num, header in enumerate(headers, 1):
+                cell = ws_interval.cell(row=1, column=col_num)
+                cell.value = header
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+
+            for row_num, row_data in enumerate(dataframe_to_rows(iv_reset, index=False, header=False), 2):
+                for col_num, value in enumerate(row_data, 1):
+                    cell = ws_interval.cell(row=row_num, column=col_num)
+                    cell.value = value
+
+            ws_interval.column_dimensions['A'].width = 12
+            ws_interval.column_dimensions['B'].width = 12
+            ws_interval.column_dimensions['C'].width = 15
+            ws_interval.column_dimensions['D'].width = 15
+            ws_interval.column_dimensions['E'].width = 12
+            ws_interval.column_dimensions['F'].width = 14
+
+            # One full Trade Summary sheet per interval, same depth as Sheet 1
+            for interval in intervals:
+                sub = df[df[interval_col] == interval].copy()
+                if sub.empty:
+                    continue
+                sheet_name = f"Summary ({interval}-tick)"[:31]  # Excel sheet name limit
+                ws_iv_summary = wb.create_sheet(sheet_name)
+                self._write_trade_summary_sheet(ws_iv_summary, sub)
+        # if interval_col is absent, or present with only one distinct value,
+        # a per-interval breakdown wouldn't add anything beyond the main
+        # Trade Summary sheet, so it's skipped in both cases.
 
         wb.save(output_path)
 
