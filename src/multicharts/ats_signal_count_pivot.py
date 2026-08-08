@@ -2,7 +2,7 @@
 """
 Process price breakout CSV files and pivot them by symbol and interval.
 
-Input files: AtsPriceBrkout-{Interval}.csv
+Input files: AtsSlowReversal-{Interval}.csv
   Columns: Symbol, Interval, BarCount, SignalCount, Time
 
 Output: One row per symbol with columns for each interval's max signal count.
@@ -18,10 +18,10 @@ from collections import defaultdict
 
 def find_matching_files(input_folder: str) -> list:
     """
-    Find all files matching pattern AtsPriceBrkout-{Interval}.csv
+    Find all files matching pattern AtsSlowReversal-{Interval}.csv
     Returns list of (filepath, interval) tuples sorted by interval.
     """
-    pattern = r'AtsPriceBrkout-(\d+)\.csv$'
+    pattern = r'AtsSlowReversal-(\d+)\.csv$'
     matching = []
 
     for filename in os.listdir(input_folder):
@@ -45,7 +45,7 @@ def process_all_files(input_folder: str) -> dict:
     
     matching_files = find_matching_files(input_folder)
     if not matching_files:
-        print(f"No files matching pattern AtsPriceBrkout-{{Interval}}.csv found.")
+        print(f"No files matching pattern AtsSlowReversal-{{Interval}}.csv found.")
         return data
     
     print(f"Found {len(matching_files)} file(s)")

@@ -133,7 +133,7 @@ CVD-only trade in the sample set showed different failure modes).
 **Important caveat before reading this table**: flag numbers are **not**
 consistent across strategy versions. The same number (`C5`, `C9`, `C12`,
 `C13` in particular) has meant different conditions in earlier strategy
-variants (`AtsPriceQuickReversal`, `AtsPriceBrkout`) discussed earlier in
+variants (`AtsFastReversal`, `AtsSlowReversal`) discussed earlier in
 this project than it means here. Always check the specific strategy's own
 source before assuming a flag's meaning carries over. The table below
 reflects the current AtsFastReversal/AtsSlowReversal definitions.
@@ -149,7 +149,7 @@ reflects the current AtsFastReversal/AtsSlowReversal definitions.
 | `C9` | `HMAGapCV <= HMinHMAGapCV` — consistency-of-trend-gap condition. (An earlier reported "fix" changing this to `>=` was tested and rejected — see §5; the `<=` direction is the empirically correct one.) |
 | `C10` | CVDAcel-based "accel last 2 bars" condition. Component of `CVDEntryScore` (weight 4, most recent version). |
 | `C11` | `ATRsFromHma` bar-expansion condition. Component of `CVDEntryScore` (weight 2, most recent version). |
-| `C12` | `CVDEntryScore >= MinCVDEntryScore` — the "CVD path" half of the entry OR-gate. **Note the naming collision**: in `AtsPriceBrkout`, `C12` meant something entirely different (an earlier HMA cross check) and was found to be a constant, uninformative flag there. Different strategy, different meaning. |
+| `C12` | `CVDEntryScore >= MinCVDEntryScore` — the "CVD path" half of the entry OR-gate. **Note the naming collision**: in `AtsSlowReversal`, `C12` meant something entirely different (an earlier HMA cross check) and was found to be a constant, uninformative flag there. Different strategy, different meaning. |
 | `C13` | CVDDeltaPct confirms direction. Component of `CVDEntryScore` (weight 1). Sign-dependent per direction (see CVDDelta above). |
 | `C14`, `C15` | Specific bullish/bearish bar-formation (candlestick) patterns, each contributing 3 points to `PatternEntryScore`. Long and short versions are mirror images of each other. |
 
@@ -315,7 +315,7 @@ identical to no filter at all. Always check the "optimized" filter's
 trade, treat it as this pattern rather than a real combination effect.
 
 ### A component with 0% or 100% firing rate carries zero information
-Confirmed for `AtsPriceBrkout`'s `C5`/`C12` (100% — structural preconditions
+Confirmed for `AtsSlowReversal`'s `C5`/`C12` (100% — structural preconditions
 already enforced upstream, not real gates) and `C9` (0% — dead at that
 strategy's typical value range). Always check firing rate before including
 a flag in any weight or threshold search.

@@ -10,9 +10,9 @@ Four related strategies, all built on the same underlying pattern: a
 multi-condition entry system using boolean "C" flags (`C1`-`C15`), continuous
 indicator thresholds, and (in newer versions) grouped weighted scores.
 
-- **AtsPriceQuickReversal** — enters on a sharp, sudden reversal (a "speed
+- **AtsFastReversal** — enters on a sharp, sudden reversal (a "speed
   flip"). The original/most-analyzed strategy in this project.
-- **AtsPriceBrkout** — similar structure, but enters on breakout continuation
+- **AtsSlowReversal** — similar structure, but enters on breakout continuation
   rather than reversal. Its `C5`/`C12` definitions differ from
   QuickReversal's (see "Per-strategy notes" below) and turned out to be
   **constant (always true) in the trade log**, not real gates — a
@@ -111,7 +111,7 @@ significance / survives a held-out test; LOW = small-sample or unconfirmed).
 
 ## Per-strategy state (as of last analysis)
 
-### AtsPriceQuickReversal
+### AtsFastReversal
 - Long: `FullDeltaATRs >= 9 AND FullAngle >= 26` — confirmed, replicated
   across two independently-collected batches (rare, strong confirmation).
 - `PipSpeedPct` needs a **ceiling** (~60-65 long, ~50-60 short), not a higher
@@ -135,7 +135,7 @@ significance / survives a held-out test; LOW = small-sample or unconfirmed).
   each, others 0) that beat baseline on one held-out run — needs
   confirmation on a fresh batch before trusting.
 
-### AtsPriceBrkout
+### AtsSlowReversal
 - Long: significant on `ATRsFromHma` (p=0.037) and `FullDeltaATRs` (p=0.038),
   both higher=better. Best combo: `FullDeltaATRs>=10.04 AND
   RevATRsPerSec<=0.63`.

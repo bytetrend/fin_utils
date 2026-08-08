@@ -6,10 +6,10 @@ from typing import List, Tuple
 
 def find_matching_files(input_folder: str) -> List[Tuple[str, int]]:
     """
-    Find all files in input_folder matching pattern AtsPriceBrkout-{Interval}.csv
+    Find all files in input_folder matching pattern AtsSlowReversal-{Interval}.csv
     Returns list of (filepath, interval) tuples sorted by interval.
     """
-    pattern = r'AtsPriceBrkout-(\d+)\.csv$'
+    pattern = r'AtsSlowReversal-(\d+)\.csv$'
     matching = []
 
     for filename in os.listdir(input_folder):
@@ -78,7 +78,7 @@ def process_csv_file(file_path: str, interval: int) -> List[Tuple[str, int, int]
 
 def process_folder(input_folder: str) -> List[Tuple[str, int, int]]:
     """
-    Process all AtsPriceBrkout-{Interval}.csv files in the folder.
+    Process all AtsSlowReversal-{Interval}.csv files in the folder.
     Returns combined results from all files.
     """
     all_records = {}  # key: (Symbol, Interval) -> MaxSignalCount
@@ -86,7 +86,7 @@ def process_folder(input_folder: str) -> List[Tuple[str, int, int]]:
     # Find matching files
     matching_files = find_matching_files(input_folder)
     if not matching_files:
-        print(f"No files matching pattern AtsPriceBrkout-{{Interval}}.csv found in {input_folder}")
+        print(f"No files matching pattern AtsSlowReversal-{{Interval}}.csv found in {input_folder}")
         return []
 
     print(f"Found {len(matching_files)} file(s)")
@@ -164,7 +164,7 @@ def write_max_output_file(result_data: List[Tuple[str, int, int]], output_file_p
 # Example usage:
 if __name__ == "__main__":
     """
-    Process multiple AtsPriceBrkout-{Interval}.csv files from a folder.
+    Process multiple AtsSlowReversal-{Interval}.csv files from a folder.
     This script collects all files matching the pattern and extracts the highest
     signal count value (column D) per symbol for each interval.
     
@@ -172,9 +172,9 @@ if __name__ == "__main__":
     python parse_screener_breakout_results.py <input_folder> [output_file.csv] [max_output_file.csv]
     
     Where input_folder contains files like:
-      AtsPriceBrkout-5.csv
-      AtsPriceBrkout-10.csv
-      AtsPriceBrkout-15.csv
+      AtsSlowReversal-5.csv
+      AtsSlowReversal-10.csv
+      AtsSlowReversal-15.csv
     """
     import sys
 
