@@ -3,6 +3,8 @@
 ```commandline
 python ats_feature_importance.py trades.csv --params ind_PipSpeedNorm,ind_PipSpeedTrendPct,ind_PipSpeedAcelNorm --cv-folds 5
 ```
+
+Note: The `--params` flag accepts comparison-style tokens like `ind_X<5` or `ind_Y>=0.1`. For now these are parsed only to extract the column name on the left-hand side; the comparison is not applied as a row-level filter. If you want the CLI to apply the comparisons as dataset filters, request that change and it will be implemented.
 (Worth noting: we already checked ind_PipSpeedNorm in the significance test and found p>0.3 for both directions on this batch — so whatever threshold comes out below should be treated as provisional, same caveat as everything else recently.)
 Find the best single threshold on PipSpeedNorm (GridSearchOptimizer):
 ```commandline 

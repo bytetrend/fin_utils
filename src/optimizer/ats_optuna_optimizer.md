@@ -54,7 +54,7 @@ test-window results.
 | `--n-trials N` | 1000 | Optuna trials to run per direction |
 | `--test-fraction F` | 0.25 | Fraction of trades (chronologically last) held out as the test set |
 | `--cv-folds N` | 1 (off) | If > 1, cross-validate the objective across this many folds of the training data instead of raw training expectancy |
-| `--params "a,b,c"` | auto-detect | Comma-separated list of parameter columns to search over, instead of every numeric `ind_*` column |
+| `--params "a,b,c"` | auto-detect | Comma-separated list of parameter columns to search over, instead of every numeric `ind_*` column. Comparison expressions like `ind_X<=5` are accepted; only the column name (LHS) is used for selection — comparisons are not applied as row filters. |
 | `--seed N` | 42 | Random seed for reproducibility |
 | `--output PATH` | none | Write the full structured report as JSON |
 

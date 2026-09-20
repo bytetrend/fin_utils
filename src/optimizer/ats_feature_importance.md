@@ -57,7 +57,7 @@ columns, and reports AUC plus a ranked importance table.
 |---|---|---|
 | `--model {random_forest,gradient_boosting}` | random_forest | Classifier used for importance ranking |
 | `--cv-folds N` | 5 | Number of cross-validation folds |
-| `--params "a,b,c"` | auto-detect | Comma-separated list of parameter columns to rank, instead of every numeric `ind_*` column |
+| `--params "a,b,c"` | auto-detect | Comma-separated list of parameter columns to rank, instead of every numeric `ind_*` column. Comparison expressions like `ind_X<5` are accepted; only the column name (LHS) is used for selection — comparisons are not applied as row filters. |
 | `--seed N` | 42 | Random seed for reproducibility |
 | `--no-shap` | off | Skip SHAP computation even if the package is installed |
 | `--output PATH` | none | Write the full structured report as JSON |
