@@ -20,6 +20,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import re
 
 
 # ============================================================================
@@ -189,10 +190,23 @@ class ColumnSelector:
                            exclude_boolean_flags: bool = True,
                            min_unique: int = 3) -> list:
         if explicit:
-            missing = [c for c in explicit if c not in df.columns]
+            # Allow explicit parameters to include comparison operators (e.g.
+            # "ind_DeltaPips<98.0"). Extract the column name on the LHS of any
+            # comparison so callers can pass constraints without breaking the
+            # column-selection logic. Return the plain column names in the same
+            # order as provided.
+            processed = []
+            missing = []
+            for token in explicit:
+                m = re.match(r'^\s*([^<>=!]+?)\s*(?:[<>]=?|==|!=)\s*(.+)$', token)
+                col = m.group(1).strip() if m else token.strip()
+                if col not in df.columns:
+                    missing.append(token)
+                else:
+                    processed.append(col)
             if missing:
                 raise ValueError(f"Requested parameters not found in CSV: {missing}")
-            return explicit
+            return processed
 
         params = []
         for c in df.columns:
