@@ -59,6 +59,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+import re
 
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import StratifiedKFold
@@ -133,6 +134,25 @@ class FeatureImportanceAnalyzer:
         # Unlike the threshold-sweep scripts, this one WANTS the boolean
         # C-flags included -- it ranks them alongside continuous parameters
         # rather than testing them separately.
+        # Allow explicit parameters to include comparison operators (e.g.
+        # "ind_DeltaPips<98.0"). Extract the column name on the LHS of any
+        # comparison so callers can pass constraints without breaking the
+        # column-selection logic. Return the plain column names in the same
+        # order as provided.
+        if explicit:
+            processed = []
+            missing = []
+            for token in explicit:
+                m = re.match(r'^\s*([^<>=!]+?)\s*(?:[<>]=?|==|!=)\s*(.+)$', token)
+                col = m.group(1).strip() if m else token.strip()
+                if col not in df.columns:
+                    missing.append(token)
+                else:
+                    processed.append(col)
+            if missing:
+                raise ValueError(f"Requested parameters not found in CSV: {missing}")
+            return ColumnSelector.get_param_columns(df, explicit=processed, non_param_columns=NON_PARAM_COLUMNS,
+                                                     exclude_boolean_flags=False, min_unique=2)
         return ColumnSelector.get_param_columns(df, explicit=explicit, non_param_columns=NON_PARAM_COLUMNS,
                                                  exclude_boolean_flags=False, min_unique=2)
 
