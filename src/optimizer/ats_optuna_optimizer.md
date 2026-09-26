@@ -55,6 +55,7 @@ test-window results.
 | `--test-fraction F` | 0.25 | Fraction of trades (chronologically last) held out as the test set |
 | `--cv-folds N` | 1 (off) | If > 1, cross-validate the objective across this many folds of the training data instead of raw training expectancy |
 | `--params "a,b,c"` | auto-detect | Comma-separated list of parameter columns to search over, instead of every numeric `ind_*` column. Comparison expressions like `ind_X<=5` are accepted; only the column name (LHS) is used for selection — comparisons are not applied as row filters. |
+| `--direction {long,short}` | none | Restrict the optimization to only long or short trades; default is to optimize both directions. |
 | `--seed N` | 42 | Random seed for reproducibility |
 | `--output PATH` | none | Write the full structured report as JSON |
 
@@ -79,6 +80,12 @@ of searching every column:
 ```bash
 python ats_optuna_optimizer.py trades.csv \
   --params ind_FullDeltaATRs,ind_FullAngle,ind_ATRsFromHma
+```
+
+Optimize only the long side of the strategy for a focused pass:
+
+```bash
+python ats_optuna_optimizer.py trades.csv --direction long --params ind_FullDeltaATRs,ind_PipSpeedNorm
 ```
 
 Save the full structured results for later comparison across dataset runs:

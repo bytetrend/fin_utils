@@ -353,6 +353,8 @@ def main():
     ap.add_argument("--params", default=None,
                     help="Comma-separated list of parameter columns to search over "
                          "(default: auto-detect all numeric ind_* columns)")
+    ap.add_argument("--direction", choices=["long", "short"], default=None,
+                    help="Restrict optimization to only long or short trades (default: optimize both directions)")
     ap.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     ap.add_argument("--output", default=None, help="Optional path to write the full JSON report")
     EntryPathAnalyzer.add_cli_args(ap)
@@ -366,9 +368,14 @@ def main():
     params = opt.get_param_columns(df, explicit_params)
 
     long_df, short_df = opt.split_by_direction(df)
+    selected_directions = [("long", long_df), ("short", short_df)]
+    if args.direction:
+        selected_directions = [(args.direction, long_df if args.direction == "long" else short_df)]
 
     print(f"Loaded {len(df)} trades from {args.csv_path}")
     print(f"  Long: {len(long_df)}   Short: {len(short_df)}")
+    if args.direction:
+        print(f"  Direction filter: {args.direction.upper()} only")
     print(f"  Searching over {len(params)} parameters: {params}")
     print(f"  Train/test split: {1-args.test_fraction:.0%}/{args.test_fraction:.0%} chronological, "
           f"{args.n_trials} trials, cv_folds={args.cv_folds}")
@@ -384,16 +391,17 @@ def main():
         opt.print_result(r)
         return r
 
-    long_result = run_one(long_df, "long", 0, params)
-    short_result = run_one(short_df, "short", 1, params)
+    results = {}
+    for idx, (direction_label, direction_df) in enumerate(selected_directions):
+        results[direction_label] = run_one(direction_df, direction_label, idx, params)
 
     by_entry_path = {}
     if path_cfg:
         print(f"\n{'#'*72}")
         print(" ENTRY-PATH BREAKDOWN")
         print(f"{'#'*72}")
-        seed_offset = 2
-        for direction_label, direction_df in [("long", long_df), ("short", short_df)]:
+        seed_offset = len(selected_directions) + 1
+        for direction_label, direction_df in selected_directions:
             path_series = EntryPathAnalyzer.compute_entry_path(direction_df, path_cfg["pattern_col"], path_cfg["cvd_col"],
                                                                 path_cfg["min_pattern"], path_cfg["min_cvd"])
             by_entry_path[direction_label] = {}
@@ -423,11 +431,15 @@ def main():
 
     if args.output:
         report = {
-            "csv_path": args.csv_path, "min_n": args.min_n, "n_trials": args.n_trials,
-            "test_fraction": args.test_fraction, "cv_folds": args.cv_folds,
-            "long": {**asdict(long_result), "clauses": [str(c) for c in long_result.clauses]},
-            "short": {**asdict(short_result), "clauses": [str(c) for c in short_result.clauses]},
+            "csv_path": args.csv_path,
+            "direction": args.direction,
+            "min_n": args.min_n,
+            "n_trials": args.n_trials,
+            "test_fraction": args.test_fraction,
+            "cv_folds": args.cv_folds,
         }
+        for direction_label, result in results.items():
+            report[direction_label] = {**asdict(result), "clauses": [str(c) for c in result.clauses]}
         if path_cfg:
             report["entry_path_config"] = path_cfg
             report["by_entry_path"] = {
