@@ -135,6 +135,31 @@ CVD_SCORE_COL_CANDIDATES = [Column.IND_CVD_ENTRY_SCORE.value]
 class TradeDataLoader:
 
     @staticmethod
+    def _drop_invalid_date_rows(df: pd.DataFrame, column: str) -> pd.DataFrame:
+        """Coerce a date-like column and drop rows whose date value could not be parsed.
+
+        This keeps optimization runs going when a dirty merged CSV contains a few
+        malformed dates like '/0/1900' instead of failing the entire job.
+        """
+        import warnings
+
+        if column not in df.columns:
+            return df
+
+        parsed = pd.to_datetime(df[column].astype(str).str.strip(), errors="coerce")
+        invalid = parsed.isna()
+        if invalid.any():
+            warnings.warn(
+                f"Dropping {int(invalid.sum())} row(s) with invalid '{column}' values while loading trade data."
+            )
+            df = df.loc[~invalid].copy()
+            df[column] = parsed.loc[~invalid]
+        else:
+            df = df.copy()
+            df[column] = parsed
+        return df
+
+    @staticmethod
     def load_trades(csv_path: str, sort_by_entry_date: bool = False) -> pd.DataFrame:
         """Loads a merged trade CSV, strips column whitespace, validates the
         two required columns, and adds the derived ProfitHit column.
@@ -154,9 +179,12 @@ class TradeDataLoader:
             raise ValueError(f"Expected an '{Column.IND_SIGNAL_SENT.value}' column (1=long, -1=short).")
         df[PROFIT_HIT_COL] = df[Column.PROFIT_LOSS.value] > 0
 
+        for col in (Column.ENTRY_DATE.value, Column.EXIT_DATE.value):
+            if col in df.columns:
+                df = TradeDataLoader._drop_invalid_date_rows(df, col)
+
         if sort_by_entry_date:
             if Column.ENTRY_DATE.value in df.columns:
-                df[Column.ENTRY_DATE.value] = pd.to_datetime(df[Column.ENTRY_DATE.value])
                 df = df.sort_values(Column.ENTRY_DATE.value).reset_index(drop=True)
             else:
                 warnings.warn(

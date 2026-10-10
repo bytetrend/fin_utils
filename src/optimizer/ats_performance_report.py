@@ -76,18 +76,27 @@ class PerformanceReportGenerator:
         df.columns = [c.strip() for c in df.columns]
 
         # Parse dates / times
-        df[WorkingColumn.ENTRY_DT.value] = pd.to_datetime(
+        entry_dt = pd.to_datetime(
             df[Column.ENTRY_DATE.value].astype(str) + " " +
             df[Column.ENTRY_TIME.value].astype(str).str.zfill(4).str[:2] + ":" +
             df[Column.ENTRY_TIME.value].astype(str).str.zfill(4).str[2:],
             format="%m/%d/%Y %H:%M", errors="coerce"
         )
-        df[WorkingColumn.EXIT_DT.value] = pd.to_datetime(
+        exit_dt = pd.to_datetime(
             df[Column.EXIT_DATE.value].astype(str) + " " +
             df[Column.EXIT_TIME.value].astype(str).str.zfill(4).str[:2] + ":" +
             df[Column.EXIT_TIME.value].astype(str).str.zfill(4).str[2:],
             format="%m/%d/%Y %H:%M", errors="coerce"
         )
+        invalid = entry_dt.isna() | exit_dt.isna()
+        if invalid.any():
+            print(f"Skipping {int(invalid.sum())} row(s) with invalid entry/exit dates.", file=sys.stderr)
+            df = df.loc[~invalid].copy()
+            entry_dt = entry_dt.loc[~invalid]
+            exit_dt = exit_dt.loc[~invalid]
+
+        df[WorkingColumn.ENTRY_DT.value] = entry_dt
+        df[WorkingColumn.EXIT_DT.value] = exit_dt
 
         df[WorkingColumn.PL.value] = pd.to_numeric(df[Column.PROFIT_LOSS.value], errors="coerce").fillna(0)
         df[Column.SHARES.value] = pd.to_numeric(df[Column.SHARES.value], errors="coerce").fillna(0)
@@ -110,9 +119,13 @@ class PerformanceReportGenerator:
         if symbol:
             df = df[df[Column.SYMBOL.value].str.upper() == symbol.upper()]
         if start:
-            df = df[df[WorkingColumn.ENTRY_DT.value] >= pd.to_datetime(start, format="%m/%d/%Y")]
+            start_dt = pd.to_datetime(start, format="%m/%d/%Y", errors="coerce")
+            if pd.notna(start_dt):
+                df = df[df[WorkingColumn.ENTRY_DT.value] >= start_dt]
         if end:
-            df = df[df[WorkingColumn.ENTRY_DT.value] <= pd.to_datetime(end, format="%m/%d/%Y")]
+            end_dt = pd.to_datetime(end, format="%m/%d/%Y", errors="coerce")
+            if pd.notna(end_dt):
+                df = df[df[WorkingColumn.ENTRY_DT.value] <= end_dt]
         return df.copy()
 
     # ------------------------------------------------------------------

@@ -13,6 +13,17 @@ STRATEGIES = ["AtsSlowReversal", "AtsFastReversal","AtsSlowReversal","AtsFastRev
 os.makedirs(TEMP_OUT_DIR, exist_ok=True)
 
 
+def sanitize_fieldnames(fieldnames):
+    cleaned = []
+    for f in fieldnames or []:
+        if f is None:
+            continue
+        name = str(f).strip()
+        if name:
+            cleaned.append(name)
+    return cleaned
+
+
 def norm_date_from_indicator(s):
     s = (s or '').strip()
     for fmt in ("%Y%m%d", "%Y-%m-%d", "%Y/%m/%d"):
@@ -75,9 +86,12 @@ def load_indicators(strategy):
 
         with open(f, newline='', encoding='utf-8') as fh:
             reader = csv.DictReader(fh)
-            if fieldnames is None:
-                fieldnames = list(reader.fieldnames or [])
+            if reader.fieldnames is not None:
+                cleaned = sanitize_fieldnames(reader.fieldnames)
+                if fieldnames is None:
+                    fieldnames = cleaned
             for row in reader:
+                row = {k: v for k, v in row.items() if k is not None and str(k).strip()}
                 rt_raw = (row.get('R/T') or '').strip()
                 has_rt1 = rt_raw in ('1', '1.0', 'True')
 
@@ -135,9 +149,12 @@ def process_strategy(strategy):
         
         with open(tf, newline='', encoding='utf-8') as fh:
             reader = csv.DictReader(fh)
-            if trade_fields is None:
-                trade_fields = list(reader.fieldnames or [])
+            if reader.fieldnames is not None:
+                cleaned = sanitize_fieldnames(reader.fieldnames)
+                if trade_fields is None:
+                    trade_fields = cleaned
             for tro in reader:
+                tro = {k: v for k, v in tro.items() if k is not None and str(k).strip()}
                 edate = norm_date_from_trade(tro.get('EntryDate', ''))
                 etime = norm_time_from_trade(tro.get('EntryTime', ''))
                 sbar = (tro.get('SignalBar') or '').strip()
@@ -150,19 +167,21 @@ def process_strategy(strategy):
                 merged = dict(tro)
                 if ind:
                     for k, v in ind.items():
+                        if k is None or not str(k).strip():
+                            continue
                         merged[f'ind_{k}'] = v
                 else:
                     # still add ind_ fields as empty to keep columns consistent
-                    for k in ind_fields:
+                    for k in sanitize_fieldnames(ind_fields):
                         merged[f'ind_{k}'] = ''
                 merged_rows.append(merged)
     if trade_fields is None:
         print(f"No trade files found for strategy {strategy}")
         return
     # build output fieldnames: trades fields then ind_ fields
-    out_fields = list(trade_fields)
+    out_fields = sanitize_fieldnames(trade_fields)
     # ensure ind fields unique and in original order
-    for f in ind_fields:
+    for f in sanitize_fieldnames(ind_fields):
         pref = f'ind_{f}'
         if pref not in out_fields:
             out_fields.append(pref)
