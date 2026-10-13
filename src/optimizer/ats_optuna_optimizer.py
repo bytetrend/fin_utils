@@ -110,12 +110,14 @@ class OptimizationResult:
 class BayesianThresholdOptimizer:
 
     def __init__(self, min_n: int = MIN_N_DEFAULT, n_trials: int = 1000,
-                 test_fraction: float = 0.25, cv_folds: int = 1, seed: int = 42):
+                 test_fraction: float = 0.25, cv_folds: int = 1, seed: int = 42,
+                 warm_start: bool = False):
         self.min_n = min_n
         self.n_trials = n_trials
         self.test_fraction = test_fraction
         self.cv_folds = cv_folds
         self.seed = seed
+        self.warm_start = warm_start
 
     # ------------------------------------------------------------------
     # Data loading / column selection
@@ -259,6 +261,34 @@ class BayesianThresholdOptimizer:
         objective = self.make_objective(train_df, params)
         sampler = optuna.samplers.TPESampler(seed=self.seed + seed_offset)
         study = optuna.create_study(direction="maximize", sampler=sampler)
+
+        if self.warm_start:
+            print(f"   [Warm Start] Loading historical rows to seed the {label} study...")
+            param_arrays = {p: train_df[p].to_numpy(dtype=float) for p in params}
+            for idx, row in train_df.iterrows():
+                trial_params = {}
+                trial_distributions = {}
+                for p in params:
+                    val = float(row[p])
+                    if np.isnan(val):
+                        trial_params[f"{p}__dir"] = "none"
+                    else:
+                        trial_params[f"{p}__dir"] = "ge" if idx % 2 == 0 else "le"
+                        trial_params[f"{p}__thresh"] = val
+                        lo, hi = float(np.nanmin(param_arrays[p])), float(np.nanmax(param_arrays[p]))
+                        if lo < hi:
+                            trial_distributions[f"{p}__thresh"] = optuna.distributions.FloatDistribution(lo, hi)
+                    trial_distributions[f"{p}__dir"] = optuna.distributions.CategoricalDistribution(["none", "ge", "le"])
+                try:
+                    historical_trial = optuna.trial.create_trial(
+                        params=trial_params,
+                        distributions=trial_distributions,
+                        value=float(row[Column.PROFIT_LOSS.value]),
+                    )
+                    study.add_trial(historical_trial)
+                except ValueError:
+                    continue
+
         study.optimize(objective, n_trials=self.n_trials, show_progress_bar=False)
 
         clauses = self.clauses_from_trial(study.best_trial.params, params)
@@ -356,12 +386,15 @@ def main():
     ap.add_argument("--direction", choices=["long", "short"], default=None,
                     help="Restrict optimization to only long or short trades (default: optimize both directions)")
     ap.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    ap.add_argument("--warm-start", action="store_true",
+                    help="Seed the Optuna study with historical trade rows as warm-start trials (LLM/agentic use case)")
     ap.add_argument("--output", default=None, help="Optional path to write the full JSON report")
     EntryPathAnalyzer.add_cli_args(ap)
     args = ap.parse_args()
 
     opt = BayesianThresholdOptimizer(min_n=args.min_n, n_trials=args.n_trials,
-                                      test_fraction=args.test_fraction, cv_folds=args.cv_folds, seed=args.seed)
+                                      test_fraction=args.test_fraction, cv_folds=args.cv_folds, seed=args.seed,
+                                      warm_start=args.warm_start)
 
     df = opt.load_trades(args.csv_path)
     explicit_params = [p.strip() for p in args.params.split(",")] if args.params else None
@@ -437,6 +470,7 @@ def main():
             "n_trials": args.n_trials,
             "test_fraction": args.test_fraction,
             "cv_folds": args.cv_folds,
+            "warm_start": args.warm_start,
         }
         for direction_label, result in results.items():
             report[direction_label] = {**asdict(result), "clauses": [str(c) for c in result.clauses]}

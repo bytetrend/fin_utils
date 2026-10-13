@@ -61,6 +61,12 @@ columns, and reports AUC plus a ranked importance table.
 | `--seed N` | 42 | Random seed for reproducibility |
 | `--no-shap` | off | Skip SHAP computation even if the package is installed |
 | `--output PATH` | none | Write the full structured report as JSON |
+| `--min-pattern-score F` | none | Enables entry-path stratification. The minimum PatternEntryScore threshold for classifying trades as `pattern_only` / `cvd_only` / `both` / `neither`. Requires `--min-cvd-score` too. |
+| `--min-cvd-score F` | none | Companion to `--min-pattern-score`; the minimum CVDEntryScore threshold used for the same bucket split. |
+| `--pattern-score-col NAME` | auto-detect | Explicit PatternEntryScore column name. If omitted, the script tries the standard `ind_PatternEntryScore` column. |
+| `--cvd-score-col NAME` | auto-detect | Explicit CVDEntryScore column name. If omitted, the script tries the standard `ind_CVDEntryScore` column. |
+
+When both `--min-pattern-score` and `--min-cvd-score` are supplied, the script runs the feature-importance analysis on the full direction as well as on each entry-path bucket (`pattern_only`, `cvd_only`, `both`, and `neither` when present). The score column that defines a given bucket is excluded from that bucket's parameter list so it is not treated as a meaningful independent feature inside the same bucket.
 
 ## Examples
 

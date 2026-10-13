@@ -8,9 +8,10 @@ LOG_SIGNAL_DIR = r"C:\Invest\logs\signal"
 LOG_IND_DIR = r"C:\Invest\logs\ind"
 OUT_DIR = r"C:\Invest\logs\merged"
 TEMP_OUT_DIR = r"C:\Invest\logs\merged_tmp"
-STRATEGIES = ["AtsSlowReversal", "AtsFastReversal","AtsSlowReversal","AtsFastReversal"]
+STRATEGIES = ["AtsSlowReversal", "AtsFastReversal"]
 
 os.makedirs(TEMP_OUT_DIR, exist_ok=True)
+os.makedirs(OUT_DIR, exist_ok=True)
 
 
 def sanitize_fieldnames(fieldnames):
@@ -140,6 +141,7 @@ def process_strategy(strategy):
     trades_pattern = os.path.join(LOG_SIGNAL_DIR, f"{strategy}-*-trades.csv")
     trade_files = glob.glob(trades_pattern)
     merged_rows = []
+    missing_rows = []
     trade_fields = None
     for tf in trade_files:
         # Extract symbol from filename: Strategy-Symbol-*-trades.csv
@@ -174,6 +176,8 @@ def process_strategy(strategy):
                     # still add ind_ fields as empty to keep columns consistent
                     for k in sanitize_fieldnames(ind_fields):
                         merged[f'ind_{k}'] = ''
+                    trade_row = {field: tro.get(field, '') for field in sanitize_fieldnames(trade_fields)}
+                    missing_rows.append({"filename": fname, **trade_row})
                 merged_rows.append(merged)
     if trade_fields is None:
         print(f"No trade files found for strategy {strategy}")
@@ -193,15 +197,25 @@ def process_strategy(strategy):
             writer.writerow(r)
     print(f"Wrote {len(merged_rows)} merged rows to {out_path}")
 
+    missing_out_path = os.path.join(TEMP_OUT_DIR, f"{strategy}-mising-signal.csv")
+    missing_fields = ['filename'] + sanitize_fieldnames(trade_fields)
+    with open(missing_out_path, 'w', newline='', encoding='utf-8') as outfh:
+        writer = csv.DictWriter(outfh, fieldnames=missing_fields, extrasaction='ignore')
+        writer.writeheader()
+        for row in missing_rows:
+            writer.writerow(row)
+    print(f"Wrote {len(missing_rows)} missing-indicator rows to {missing_out_path}")
+
 
 if __name__ == '__main__':
     for s in STRATEGIES:
         process_strategy(s)
     # Move temp files to final location
     for s in STRATEGIES:
-        src = os.path.join(TEMP_OUT_DIR, f"{s}-merged.csv")
-        dst = os.path.join(OUT_DIR, f"{s}-merged.csv")
-        if os.path.exists(src):
-            shutil.move(src, dst)
-            print(f"Moved {src} to {dst}")
+        for suffix in ["-merged.csv", "-mising-signal.csv"]:
+            src = os.path.join(TEMP_OUT_DIR, f"{s}{suffix}")
+            dst = os.path.join(OUT_DIR, f"{s}{suffix}")
+            if os.path.exists(src):
+                shutil.move(src, dst)
+                print(f"Moved {src} to {dst}")
     print('Done')

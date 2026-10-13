@@ -35,18 +35,27 @@ pip install pandas numpy optuna
 
 ## How component detection works
 
-By default the script pulls the 7 components straight from your CSV's own
-columns, matching your formula exactly:
+By default the script uses the current `PatternEntryScore` / `CVDEntryScore`
+logic and builds an 8-term component matrix from your CSV's own columns,
+matching the strategy's current formula and allowing the optimizer to learn
+which sub-signals deserve more or less weight:
 
 | Label | Column | Condition |
 |---|---|---|
 | Speed flip (C5) | `ind_C5` | flag != 0 |
-| Fast reversal (C13) | `ind_C13` | flag != 0 |
-| Volume directional (C6) | `ind_C6` | flag != 0 |
+| At least 1 CVD confirm (C6 Or C10) | `ind_C6` OR `ind_C10` | `col1 != 0 OR col2 != 0` |
+| Bar formation (C14) | `ind_C14` | flag != 0 |
+| Bar formation (C15) | `ind_C15` | flag != 0 |
+| CVDSpeedPct (C6) | `ind_C6` | flag != 0 |
 | CVD accel last 2 bars (C10) | `ind_C10` | flag != 0 |
-| CVDDeltaPctPct confirms | `ind_CVDDeltaPct` | value > 0 |
-| PipSpeedPct sustained (C7) | `ind_C7` | flag != 0 |
-| HMAGapCV consistent (C9) | `ind_C9` | flag != 0 |
+| CVDDeltaPct confirms (C13) | `ind_C13` | flag != 0 |
+| ATRsFromHma bar expansion (C11) | `ind_C11` | flag != 0 |
+
+This intentionally includes the same underlying flags in multiple roles when the
+live formula uses them in more than one place. That lets the weight optimizer
+learn whether a signal matters more as a standalone condition, as part of the
+pattern gate, or both. The `OR` form is supported directly via
+`Label:colA|colB:or` in the `--components` override string.
 
 `C13`, `C6`, and `C10` are used directly because they already encode
 `RevATRsPerSec > RevATRsPerSecLim`, `CVDAvg >= CVDAvgLim`, and the
@@ -78,14 +87,20 @@ current equal-weight formula, using its own best threshold).
 | Flag | Default | Meaning |
 |---|---|---|
 | `--min-n N` | 30 | Minimum trades required in any filtered training subset. Any weight/threshold combination that would drop below this is rejected during the search. |
-| `--n-trials N` | 2000 | Optuna trials per direction. This search space (7 weights + threshold) is bigger than the single-parameter sweep, so it benefits from more trials than `ats_optuna_optimizer.py`'s default. |
+| `--n-trials N` | 2000 | Optuna trials per direction. This search space (8 weights + threshold is the default, though a custom component list can change it) is bigger than the single-parameter sweep, so it benefits from more trials than `ats_optuna_optimizer.py`'s default. |
 | `--test-fraction F` | 0.25 | Fraction of trades (chronologically last) held out as the test set. The optimizer never sees these trades while searching. |
 | `--cv-folds N` | 1 (off) | If > 1, cross-validate the objective across this many folds of the training data instead of raw training expectancy — penalizes weight/threshold combos that only work on one lucky slice of training data. |
 | `--max-weight N` | 5 | Maximum integer weight searched per component (each component gets an integer from 0 to N). Lower this to shrink the search space on small datasets (see Pitfalls). |
 | `--min-threshold-frac F` | 0.3 | Minimum score threshold searched, as a fraction of that trial's own max possible score. **Read the "Degenerate threshold" pitfall below before changing this.** Set to `0` to restore the old unconstrained search. |
-| `--components "..."` | auto-detect | Override the default 7 components. Format: `"Label1:col1:flag,Label2:col2:gt0,..."` where the comparison is `flag` (column already 0/1, tested as != 0) or `gt0` (column tested as > 0). |
+| `--components "..."` | auto-detect | Override the default component list for both directions. Format: `"Label1:col1:flag,Label2:col2:gt0,Label3:col3:lt0,Label4:colA|colB:or,..."` where the comparison is `flag` (column already 0/1, tested as != 0), `gt0` (value > 0), `lt0` (value < 0), or `or` (either of two flag columns is nonzero). |
+| `--components-long "..."` | falls back to `--components` or default | Override the component list for LONG only. Useful when the same signal should be treated differently by direction. |
+| `--components-short "..."` | falls back to `--components` or default | Override the component list for SHORT only. |
 | `--seed N` | 42 | Random seed for reproducibility. |
 | `--output PATH` | none | Write the full structured report as JSON. |
+| `--min-pattern-score F` | none | Enables entry-path stratification; the minimum `PatternEntryScore` threshold used to classify trades as `pattern_only` / `cvd_only` / `both` / `neither`. Requires `--min-cvd-score` too. |
+| `--min-cvd-score F` | none | Companion to `--min-pattern-score`; the minimum `CVDEntryScore` threshold used for the same split. |
+| `--pattern-score-col NAME` | auto-detect | Explicit PatternEntryScore column name. If omitted, the script looks for the standard `ind_PatternEntryScore` column. |
+| `--cvd-score-col NAME` | auto-detect | Explicit CVDEntryScore column name. If omitted, the script looks for the standard `ind_CVDEntryScore` column. |
 
 ### Example: shrink the search space for a small dataset
 
@@ -187,6 +202,8 @@ results in your trading system.
 | `cv_folds` | integer | Number of cross-validation folds used (1 = no cross-validation) |
 | `max_weight` | integer | Maximum weight value searched for any component (0 to max_weight) |
 | `min_threshold_frac` | float | Minimum threshold as a fraction of max_possible_score (prevents degenerate filters) |
+| `entry_path_config` | object or absent | When `--min-pattern-score` and `--min-cvd-score` are used, this captures the resolved pattern/cvd score columns and thresholds. |
+| `by_entry_path` | object or absent | When entry-path stratification is enabled, this contains separate optimization results for each direction's `pattern_only`, `cvd_only`, `both`, and `neither` buckets. |
 
 ### Long/Short Direction Results
 

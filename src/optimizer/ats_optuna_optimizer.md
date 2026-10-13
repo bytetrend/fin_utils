@@ -58,6 +58,12 @@ test-window results.
 | `--direction {long,short}` | none | Restrict the optimization to only long or short trades; default is to optimize both directions. |
 | `--seed N` | 42 | Random seed for reproducibility |
 | `--output PATH` | none | Write the full structured report as JSON |
+| `--min-pattern-score F` | none | Enables entry-path stratification. The minimum PatternEntryScore threshold for classifying trades as `pattern_only` / `cvd_only` / `both` / `neither`. Requires `--min-cvd-score` too. |
+| `--min-cvd-score F` | none | Companion to `--min-pattern-score`; the minimum CVDEntryScore threshold used for the same bucket split. |
+| `--pattern-score-col NAME` | auto-detect | Explicit PatternEntryScore column name. If omitted, the script tries the standard `ind_PatternEntryScore` column. |
+| `--cvd-score-col NAME` | auto-detect | Explicit CVDEntryScore column name. If omitted, the script tries the standard `ind_CVDEntryScore` column. |
+
+When both `--min-pattern-score` and `--min-cvd-score` are given, the script searches each direction on the full dataset and then separately on each entry-path bucket (`pattern_only`, `cvd_only`, `both`, and `neither` when present). This prevents a single threshold search from mixing two different entry regimes into one filter.
 
 ## Examples
 

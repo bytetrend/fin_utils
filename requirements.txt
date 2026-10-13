@@ -22,3 +22,10 @@ snap
 scipy
 optuna
 shap  #For  SHapley Additive exPlanations. It is a popular Python library used for Machine Learning Explainability (XAI)
+
+#MCP AGENT
+langchain_core
+pydantic
+langchain
+langchain_experimental
+llama_index
