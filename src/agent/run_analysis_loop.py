@@ -36,6 +36,7 @@ def run_analysis_loop(csv_path: str, llm_handler: callable, max_iterations: int 
                 "trades_csv": csv_path,
                 "min_n": current_min_n,
                 "test_fraction": current_test_fraction,
+                "warm_start": True,
                 "params": target_params
             })
             optuna_results = json.loads(optuna_raw_json)

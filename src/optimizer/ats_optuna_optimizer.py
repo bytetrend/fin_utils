@@ -67,7 +67,8 @@ except ImportError:
 
 from optimizer_constants import (
     Column, MIN_N_DEFAULT, PROFIT_HIT_COL, NON_PARAM_COLUMNS,
-    TradeDataLoader, ColumnSelector, EntryPathAnalyzer,
+    STRATEGY_PARAM_COLUMNS, TradeDataLoader, ColumnSelector, EntryPathAnalyzer,
+    strategy_from_csv_path, existing_file,
 )
 
 
@@ -175,10 +176,26 @@ class BayesianThresholdOptimizer:
     # ------------------------------------------------------------------
     # Optuna objective & search
     # ------------------------------------------------------------------
+    @staticmethod
+    def searchable_param_data(train_df: pd.DataFrame, params: list) -> tuple:
+        param_arrays = {}
+        param_ranges = {}
+        for param in params:
+            values = train_df[param].to_numpy(dtype=float)
+            finite_values = values[np.isfinite(values)]
+            if finite_values.size == 0:
+                continue
+            lo, hi = float(finite_values.min()), float(finite_values.max())
+            if lo == hi:
+                continue
+            param_arrays[param] = values
+            param_ranges[param] = (lo, hi)
+        return param_arrays, param_ranges
+
     def make_objective(self, train_df: pd.DataFrame, params: list):
         pl = train_df[Column.PROFIT_LOSS.value].to_numpy(dtype=float)
-        param_arrays = {p: train_df[p].to_numpy(dtype=float) for p in params}
-        param_ranges = {p: (float(np.nanmin(param_arrays[p])), float(np.nanmax(param_arrays[p]))) for p in params}
+        param_arrays, param_ranges = self.searchable_param_data(train_df, params)
+        searchable_params = list(param_ranges)
         n = len(train_df)
 
         fold_splits = list(self.kfold_indices(n, self.cv_folds, self.seed)) if self.cv_folds > 1 else None
@@ -189,13 +206,11 @@ class BayesianThresholdOptimizer:
             else:
                 mask = np.zeros(n, dtype=bool)
                 mask[idx] = True
-            for p in params:
+            for p in searchable_params:
                 choice = trial.suggest_categorical(f"{p}__dir", ["none", "ge", "le"])
                 if choice == "none":
                     continue
                 lo, hi = param_ranges[p]
-                if lo == hi:
-                    continue
                 thresh = trial.suggest_float(f"{p}__thresh", lo, hi)
                 vals = param_arrays[p]
                 if choice == "ge":
@@ -236,6 +251,8 @@ class BayesianThresholdOptimizer:
             if choice in (None, "none"):
                 continue
             thresh = trial_params.get(f"{p}__thresh")
+            if thresh is None:
+                continue
             clauses.append(FilterClause(param=p, direction=choice, threshold=float(thresh)))
         return clauses
 
@@ -264,20 +281,19 @@ class BayesianThresholdOptimizer:
 
         if self.warm_start:
             print(f"   [Warm Start] Loading historical rows to seed the {label} study...")
-            param_arrays = {p: train_df[p].to_numpy(dtype=float) for p in params}
+            param_arrays, param_ranges = self.searchable_param_data(train_df, params)
             for idx, row in train_df.iterrows():
                 trial_params = {}
                 trial_distributions = {}
-                for p in params:
+                for p in param_ranges:
                     val = float(row[p])
-                    if np.isnan(val):
+                    if not np.isfinite(val):
                         trial_params[f"{p}__dir"] = "none"
                     else:
                         trial_params[f"{p}__dir"] = "ge" if idx % 2 == 0 else "le"
                         trial_params[f"{p}__thresh"] = val
-                        lo, hi = float(np.nanmin(param_arrays[p])), float(np.nanmax(param_arrays[p]))
-                        if lo < hi:
-                            trial_distributions[f"{p}__thresh"] = optuna.distributions.FloatDistribution(lo, hi)
+                        lo, hi = param_ranges[p]
+                        trial_distributions[f"{p}__thresh"] = optuna.distributions.FloatDistribution(lo, hi)
                     trial_distributions[f"{p}__dir"] = optuna.distributions.CategoricalDistribution(["none", "ge", "le"])
                 try:
                     historical_trial = optuna.trial.create_trial(
@@ -370,7 +386,7 @@ class BayesianThresholdOptimizer:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("csv_path", help="Path to the merged trade CSV")
+    ap.add_argument("csv_path", type=existing_file, help="Path to the merged trade CSV")
     ap.add_argument("--min-n", type=int, default=MIN_N_DEFAULT,
                     help=f"Minimum trades required in any filtered subset (default {MIN_N_DEFAULT})")
     ap.add_argument("--n-trials", type=int, default=1000,
@@ -398,6 +414,10 @@ def main():
 
     df = opt.load_trades(args.csv_path)
     explicit_params = [p.strip() for p in args.params.split(",")] if args.params else None
+    if explicit_params is None:
+        strategy = strategy_from_csv_path(args.csv_path)
+        if strategy:
+            explicit_params = STRATEGY_PARAM_COLUMNS[strategy]
     params = opt.get_param_columns(df, explicit_params)
 
     long_df, short_df = opt.split_by_direction(df)

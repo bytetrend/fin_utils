@@ -75,7 +75,8 @@ except ImportError:
 
 from optimizer_constants import (
     Column, PROFIT_HIT_COL, NON_PARAM_COLUMNS, MIN_TRADES_FOR_MODEL_DEFAULT,
-    TradeDataLoader, ColumnSelector, EntryPathAnalyzer,
+    STRATEGY_PARAM_COLUMNS, TradeDataLoader, ColumnSelector, EntryPathAnalyzer,
+    strategy_from_csv_path, existing_file,
 )
 
 
@@ -348,7 +349,7 @@ class FeatureImportanceAnalyzer:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("csv_path", help="Path to the merged trade CSV")
+    ap.add_argument("csv_path", type=existing_file, help="Path to the merged trade CSV")
     ap.add_argument("--model", choices=["random_forest", "gradient_boosting"], default="random_forest",
                     help="Classifier used for importance ranking (default random_forest)")
     ap.add_argument("--cv-folds", type=int, default=5, help="Number of cross-validation folds (default 5)")
@@ -366,6 +367,17 @@ def main():
 
     df = analyzer.load_trades(args.csv_path)
     explicit_params = [p.strip() for p in args.params.split(",")] if args.params else None
+    if explicit_params is None:
+        strategy = strategy_from_csv_path(args.csv_path)
+        if strategy:
+            mapped_params = STRATEGY_PARAM_COLUMNS[strategy]
+            flags = ColumnSelector.get_boolean_flag_columns(df)
+            explicit_params = [
+                column for column in mapped_params + flags
+                if column in df.columns
+                and pd.api.types.is_numeric_dtype(df[column])
+                and df[column].nunique(dropna=True) >= 2
+            ]
     params = analyzer.get_param_columns(df, explicit_params)
 
     long_df, short_df = analyzer.split_by_direction(df)

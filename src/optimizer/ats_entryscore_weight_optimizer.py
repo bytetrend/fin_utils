@@ -3,7 +3,8 @@
 ats_entryscore_weight_optimizer.py
 
 Optimizes the per-component WEIGHTS (and the score cutoff) of the
-AtsFastReversal / AtsSlowReversal EntryScore formula. The strategy currently
+AtsFastReversal / AtsSlowReversal EntryScore formula, with a CSV-compatible
+component list for AtsTrendAcceleration. The strategy currently
 splits entry evidence into two independently-weighted group scores:
 
     PatternEntryScore = IFF(C5, 1, 0)            // Speed flip
@@ -78,34 +79,12 @@ except ImportError:
 
 from optimizer_constants import (
     Column, MIN_N_DEFAULT, PROFIT_HIT_COL, PATTERN_SCORE_COL_CANDIDATES,
-    CVD_SCORE_COL_CANDIDATES, TradeDataLoader, EntryPathAnalyzer,
+    CVD_SCORE_COL_CANDIDATES, DEFAULT_ENTRY_SCORE_COMPONENTS, STRATEGY_COMPONENTS,
+    TradeDataLoader, EntryPathAnalyzer, strategy_from_csv_path, existing_file,
 )
 
 
-# Default EntryScore components: (label, column(s), comparison)
-# comparison is one of:
-#   "flag"  -- column is already 0/1, tested as != 0
-#   "gt0"   -- column tested as > 0
-#   "lt0"   -- column tested as < 0
-#   "or"    -- column is a 2-tuple of columns, tested as (col1 != 0) OR (col2 != 0)
-#
-# This reflects the CURRENT PatternEntryScore/CVDEntryScore formula (see
-# module docstring). Because both group scores share several underlying
-# flags (C6, C10, C11, C13), some flags appear here more than once -- once
-# standalone (as CVDEntryScore's own term) and once inside the "C6 Or C10"
-# derived term (as PatternEntryScore's CVD-confirmation term) -- letting the
-# weight search evaluate both roles independently.
-DEFAULT_COMPONENTS = [
-    ("Speed flip (C5)",                    Column.IND_C5.value,                              "flag"),
-    ("At least 1 CVD confirm (C6 Or C10)",  (Column.IND_C6.value, Column.IND_C10.value),        "or"),
-    ("Bar formation (C14)",                 Column.IND_C14.value,                             "flag"),
-    ("Bar formation (C15)",                 Column.IND_C15.value,                             "flag"),
-    ("CVDSpeedPct (C6)",                    Column.IND_C6.value,                              "flag"),
-    ("CVD accel last 2 bars (C10)",         Column.IND_C10.value,                             "flag"),
-    ("CVDDeltaPct confirms (C13)",          Column.IND_C13.value,                             "flag"),
-    ("ATRsFromHma bar expansion (C11)",     Column.IND_C11.value,                              "flag"),
-]
-
+# Comparison modes: "flag" (nonzero), "gt0", "lt0", and "or" (either flag is nonzero).
 COMPARISON_SYMBOLS = {"flag": "!=0", "gt0": ">0", "lt0": "<0", "or": "OR"}
 
 
@@ -464,7 +443,7 @@ class ParameterOptimizer:
 # ============================================================================
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("csv_path", help="Path to the merged trade CSV")
+    ap.add_argument("csv_path", type=existing_file, help="Path to the merged trade CSV")
     ap.add_argument("--min-n", type=int, default=MIN_N_DEFAULT,
                     help=f"Minimum trades required in any filtered training subset (default {MIN_N_DEFAULT})")
     ap.add_argument("--n-trials", type=int, default=2000,
@@ -502,7 +481,11 @@ def main():
                               min_threshold_frac=args.min_threshold_frac, seed=args.seed)
 
     df = opt.load_trades(args.csv_path)
-    base_components = opt.parse_components_arg(args.components) if args.components else DEFAULT_COMPONENTS
+    if args.components:
+        base_components = opt.parse_components_arg(args.components)
+    else:
+        strategy = strategy_from_csv_path(args.csv_path)
+        base_components = STRATEGY_COMPONENTS.get(strategy, DEFAULT_ENTRY_SCORE_COMPONENTS)
     components_long = opt.parse_components_arg(args.components_long) if args.components_long else base_components
     components_short = opt.parse_components_arg(args.components_short) if args.components_short else base_components
 

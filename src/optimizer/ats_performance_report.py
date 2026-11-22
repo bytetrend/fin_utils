@@ -38,7 +38,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-from optimizer_constants import Column, PROFIT_HIT_COL
+from optimizer_constants import Column, PROFIT_HIT_COL, existing_file
 
 
 # ============================================================================
@@ -645,7 +645,7 @@ class PerformanceReportGenerator:
 
 def parse_args():
     p = argparse.ArgumentParser(description="ATS Performance Report")
-    p.add_argument("csv_file", help="Path to merged trade CSV")
+    p.add_argument("csv_file", type=existing_file, help="Path to merged trade CSV")
     p.add_argument("--strategy", default=None, help="Strategy name override")
     p.add_argument("--output", default=None, help="Save summary to CSV file (deprecated, use --excel)")
     p.add_argument("--excel", default=None, help="Save report to Excel file with multiple sheets")

@@ -15,12 +15,21 @@ from here rather than redefining its own copy, so a fix or CSV-schema change
 only has to be made once.
 """
 
+from argparse import ArgumentTypeError
 from enum import Enum
+from os.path import isfile
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 import re
+
+
+def existing_file(path: str) -> str:
+    """Validate a required input-file argument before starting a CLI process."""
+    if not isfile(path):
+        raise ArgumentTypeError(f"input file does not exist: {path}")
+    return path
 
 
 # ============================================================================
@@ -58,6 +67,7 @@ class Column(str, Enum):
     IND_DELTA_ATRS = "ind_DeltaATRs"
     IND_AVG_ATR = "ind_AvgATR"
     IND_BAR_ATR = "ind_BarATR"
+    IND_BAR_ATR_1 = "ind_BarATR_1"
     IND_TREND_BAR_COUNT = "ind_TrendBarCount"
     IND_ANGLE = "ind_Angle"
     IND_PIP_SPEED = "ind_PipSpeed"
@@ -72,6 +82,8 @@ class Column(str, Enum):
     IND_HMA_GAP_STD_DEV = "ind_HMAGapStdDev"
     IND_HMA_GAP_MEAN = "ind_HMAGapMean"
     IND_HMA_GAP_CV = "ind_HMAGapCV"
+    IND_CVDCOMBINEDVAL = "ind_CVDCombinedVal"
+    IND_TWOBARTRUERANGEVAL = "ind_TwoBarTrueRangeVal"
     IND_C1 = "ind_C1"
     IND_C2 = "ind_C2"
     IND_C3 = "ind_C3"
@@ -95,6 +107,94 @@ class Column(str, Enum):
     @classmethod
     def values(cls) -> list:
         return [c.value for c in cls]
+
+
+# The Fast and Slow Reversal indicators share the same CSV header.
+REVERSAL_PARAM_COLUMNS = [
+    Column.IND_CVD_SPEED_PCT.value,
+    Column.IND_CVD_DELTA_PCT.value,
+    Column.IND_CVD_ACEL_PCT.value,
+    Column.IND_REV_ATRS_PER_SEC.value,
+    Column.IND_DELTA_ATRS.value,
+    Column.IND_AVG_ATR.value,
+    Column.IND_BAR_ATR.value,
+    Column.IND_TREND_BAR_COUNT.value,
+    Column.IND_ANGLE.value,
+    Column.IND_PIP_SPEED.value,
+    Column.IND_PIP_SPEED_NORM.value,
+    Column.IND_PIP_SPEED_ACEL.value,
+    Column.IND_PIP_SPEED_ACEL_NORM.value,
+    Column.IND_ATRS_FROM_HMA.value,
+    Column.IND_DELTA_PIPS.value,
+    Column.IND_PATTERN_ENTRY_SCORE.value,
+    Column.IND_CVD_ENTRY_SCORE.value,
+    Column.IND_PIP_SPEED_TREND_PCT.value,
+    Column.IND_HMA_GAP_STD_DEV.value,
+    Column.IND_HMA_GAP_CV.value,
+]
+
+STRATEGY_PARAM_COLUMNS = {
+    "AtsFastReversal": REVERSAL_PARAM_COLUMNS,
+    "AtsSlowReversal": REVERSAL_PARAM_COLUMNS,
+    "AtsTrendAcceleration": [
+        Column.IND_CVD_SPEED_PCT.value,
+        Column.IND_CVD_DELTA_PCT.value,
+        Column.IND_CVD_ACEL_PCT.value,
+        Column.IND_DELTA_ATRS.value,
+        Column.IND_AVG_ATR.value,
+        Column.IND_BAR_ATR.value,
+        Column.IND_BAR_ATR_1.value,
+        Column.IND_ANGLE.value,
+        Column.IND_PIP_SPEED.value,
+        Column.IND_ATRS_FROM_HMA.value,
+        Column.IND_DELTA_PIPS.value,
+        Column.IND_TWOBARTRUERANGEVAL.value,
+        Column.IND_CVDCOMBINEDVAL.value,
+    ],
+}
+
+REVERSAL_ENTRY_SCORE_COMPONENTS = [
+    ("Speed flip (C5)", Column.IND_C5.value, "flag"),
+    ("PipSpeedTrendPct (C7)", Column.IND_C7.value, "flag"),
+    ("Bar formation (C14)", Column.IND_C14.value, "flag"),
+    ("Bar formation (C15)", Column.IND_C15.value, "flag"),
+    ("CVDSpeedPct (C6)", Column.IND_C6.value, "flag"),
+    ("CVD accel last 2 bars (C10)", Column.IND_C10.value, "flag"),
+    ("CVDDeltaPct confirms (C13)", Column.IND_C13.value, "flag"),
+    ("ATRsFromHma bar expansion (C11)", Column.IND_C11.value, "flag"),
+]
+
+DEFAULT_ENTRY_SCORE_COMPONENTS = [
+    ("Speed flip (C5)", Column.IND_C5.value, "flag"),
+    ("At least 1 CVD confirm (C6 Or C10)", (Column.IND_C6.value, Column.IND_C10.value), "or"),
+    ("Bar formation (C14)", Column.IND_C14.value, "flag"),
+    ("Bar formation (C15)", Column.IND_C15.value, "flag"),
+    ("CVDSpeedPct (C6)", Column.IND_C6.value, "flag"),
+    ("CVD accel last 2 bars (C10)", Column.IND_C10.value, "flag"),
+    ("CVDDeltaPct confirms (C13)", Column.IND_C13.value, "flag"),
+    ("ATRsFromHma bar expansion (C11)", Column.IND_C11.value, "flag"),
+]
+
+STRATEGY_COMPONENTS = {
+    "AtsFastReversal": REVERSAL_ENTRY_SCORE_COMPONENTS,
+    "AtsSlowReversal": REVERSAL_ENTRY_SCORE_COMPONENTS,
+    "AtsTrendAcceleration": [
+        ("Speed flip (C5)", Column.IND_C5.value, "flag"),
+        ("At least 1 CVD confirm (C6 Or C10)", (Column.IND_C6.value, Column.IND_C10.value), "or"),
+        ("CVDSpeedPct (C6)", Column.IND_C6.value, "flag"),
+        ("CVD accel last 2 bars (C10)", Column.IND_C10.value, "flag"),
+        ("CVDDeltaPct confirms (C13)", Column.IND_C13.value, "flag"),
+        ("ATRsFromHma bar expansion (C11)", Column.IND_C11.value, "flag"),
+    ],
+}
+
+
+def strategy_from_csv_path(csv_path: str) -> Optional[str]:
+    filename = csv_path.replace("\\", "/").rsplit("/", 1)[-1]
+    return next(
+        (name for name in STRATEGY_PARAM_COLUMNS if filename.startswith(f"{name}-")),
+        None,
+    )
 
 
 # ============================================================================

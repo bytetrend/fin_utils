@@ -49,7 +49,8 @@ from scipy.stats import mannwhitneyu
 
 from optimizer_constants import (
     Column, MIN_N_DEFAULT, PROFIT_HIT_COL, NON_PARAM_COLUMNS,
-    TradeDataLoader, ColumnSelector,
+    STRATEGY_PARAM_COLUMNS, TradeDataLoader, ColumnSelector, strategy_from_csv_path,
+    existing_file,
 )
 
 MAX_CANDIDATES = 25  # cap distinct thresholds tested per parameter (quantile-spaced)
@@ -450,7 +451,7 @@ class GridSearchOptimizer:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("csv_path", help="Path to the merged trade CSV")
+    ap.add_argument("csv_path", type=existing_file, help="Path to the merged trade CSV")
     ap.add_argument("--min-n", type=int, default=MIN_N_DEFAULT,
                     help=f"Minimum trades required in a filtered subset (default {MIN_N_DEFAULT})")
     ap.add_argument("--top-n", type=int, default=8,
@@ -467,7 +468,16 @@ def main():
     opt = GridSearchOptimizer(min_n=args.min_n, top_n=args.top_n)
 
     df = opt.load_trades(args.csv_path)
-    params = opt.get_param_columns(df)
+    strategy = strategy_from_csv_path(args.csv_path)
+    if strategy:
+        params = [
+            column for column in STRATEGY_PARAM_COLUMNS[strategy]
+            if column in df.columns
+            and pd.api.types.is_numeric_dtype(df[column])
+            and df[column].nunique(dropna=True) >= 3
+        ]
+    else:
+        params = opt.get_param_columns(df)
     flags = opt.get_boolean_flag_columns(df)
 
     long_df, short_df = opt.split_by_direction(df)

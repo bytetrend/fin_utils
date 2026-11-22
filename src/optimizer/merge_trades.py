@@ -1,3 +1,4 @@
+import argparse
 import csv
 import glob
 import os
@@ -8,10 +9,36 @@ LOG_SIGNAL_DIR = r"C:\Invest\logs\signal"
 LOG_IND_DIR = r"C:\Invest\logs\ind"
 OUT_DIR = r"C:\Invest\logs\merged"
 TEMP_OUT_DIR = r"C:\Invest\logs\merged_tmp"
-STRATEGIES = ["AtsSlowReversal", "AtsFastReversal"]
+STRATEGIES = ["AtsSlowReversal", "AtsFastReversal","AtsTrendAcceleration"]
 
 os.makedirs(TEMP_OUT_DIR, exist_ok=True)
-os.makedirs(OUT_DIR, exist_ok=True)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Merge trade and indicator CSV files.")
+    parser.add_argument(
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Search for matching CSV files recursively under LOG_SIGNAL_DIR and LOG_IND_DIR.",
+    )
+    parser.add_argument(
+        "--extra-dir",
+        "--extra_dir",
+        dest="extra_dir",
+        help="Append this subdirectory to the signal, indicator, and output directories.",
+    )
+    return parser.parse_args()
+
+
+def find_csv_files(base_dir, filename_pattern, recursive=False):
+    if not os.path.isdir(base_dir):
+        return []
+    if recursive:
+        pattern = os.path.join(base_dir, "**", filename_pattern)
+        return sorted(glob.glob(pattern, recursive=True))
+    pattern = os.path.join(base_dir, filename_pattern)
+    return sorted(glob.glob(pattern))
 
 
 def sanitize_fieldnames(fieldnames):
@@ -56,6 +83,22 @@ def norm_date_from_trade(s):
     return s
 
 
+def has_trade_and_signal_fields(row):
+    if not isinstance(row, dict):
+        return False
+
+    trade_fields = [
+        'Trade', 'EntryDate', 'EntryTime', 'EntryName', 'EntryPrice', 'ExitDate',
+        'ExitTime', 'ExitName', 'ExitPrice', 'Shares', 'Profit/Loss', 'BarNumber',
+        'SignalBar', 'R/T'
+    ]
+    signal_fields = ['Signal', 'SignalSent', 'ind_SignalSent', 'ind_Signal']
+
+    has_trade = any((row.get(field) or '').strip() for field in trade_fields)
+    has_signal = any((row.get(field) or '').strip() for field in signal_fields)
+    return has_trade and has_signal
+
+
 def norm_time_from_trade(s):
     s = (s or '').strip()
     if ':' in s:
@@ -73,9 +116,8 @@ def norm_time_from_trade(s):
     return s[:5]
 
 
-def load_indicators(strategy):
-    pattern = os.path.join(LOG_IND_DIR, f"{strategy}-*.csv")
-    files = glob.glob(pattern)
+def load_indicators(strategy, recursive=False):
+    files = find_csv_files(LOG_IND_DIR, f"{strategy}-*.csv", recursive=recursive)
     # best[key] = (has_rt1, tick, computertime, row)
     best = {}
     fieldnames = None
@@ -136,10 +178,9 @@ def load_indicators(strategy):
     return {k: v[3] for k, v in best.items()}, (fieldnames or [])
 
 
-def process_strategy(strategy):
-    indicators, ind_fields = load_indicators(strategy)
-    trades_pattern = os.path.join(LOG_SIGNAL_DIR, f"{strategy}-*-trades.csv")
-    trade_files = glob.glob(trades_pattern)
+def process_strategy(strategy, recursive=False):
+    indicators, ind_fields = load_indicators(strategy, recursive=recursive)
+    trade_files = find_csv_files(LOG_SIGNAL_DIR, f"{strategy}-*-trades.csv", recursive=recursive)
     merged_rows = []
     missing_rows = []
     trade_fields = None
@@ -193,9 +234,13 @@ def process_strategy(strategy):
     with open(out_path, 'w', newline='', encoding='utf-8') as outfh:
         writer = csv.DictWriter(outfh, fieldnames=out_fields, extrasaction='ignore')
         writer.writeheader()
+        written = 0
         for r in merged_rows:
+            if not has_trade_and_signal_fields(r):
+                continue
             writer.writerow(r)
-    print(f"Wrote {len(merged_rows)} merged rows to {out_path}")
+            written += 1
+    print(f"Wrote {written} merged rows to {out_path}")
 
     missing_out_path = os.path.join(TEMP_OUT_DIR, f"{strategy}-mising-signal.csv")
     missing_fields = ['filename'] + sanitize_fieldnames(trade_fields)
@@ -208,8 +253,14 @@ def process_strategy(strategy):
 
 
 if __name__ == '__main__':
+    args = parse_args()
+    if args.extra_dir:
+        LOG_SIGNAL_DIR = os.path.join(LOG_SIGNAL_DIR, args.extra_dir)
+        LOG_IND_DIR = os.path.join(LOG_IND_DIR, args.extra_dir)
+        OUT_DIR = os.path.join(OUT_DIR, args.extra_dir)
+    os.makedirs(OUT_DIR, exist_ok=True)
     for s in STRATEGIES:
-        process_strategy(s)
+        process_strategy(s, recursive=args.recursive)
     # Move temp files to final location
     for s in STRATEGIES:
         for suffix in ["-merged.csv", "-mising-signal.csv"]:
